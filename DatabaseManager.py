@@ -9,6 +9,20 @@ import configparser
 
 
 class DatabaseManager:
+    """
+    Manages the connection and operations with a MySQL database for student information and face encodings.
+
+    === Usage Example ===
+        with DatabaseManager() as db_manager:
+            db_manager.initialize_database()
+            db_manager.add_student('2398021322', 'Lebron James', 'lebron.jpg')
+            db_manager.identify_student(face_encoding)
+
+    === Private Attributes ===
+        _db_name (str): The name of the MySQL database.
+        _connection (mysql.connector.MySQLConnection): The connection object for the MySQL database.
+        _cursor (mysql.connector.cursor): The cursor object for executing SQL queries.
+    """
     def __init__(self) -> None:
         """
         Initializes an instance of the DatabaseManager class by establishing a connection
