@@ -232,3 +232,4 @@ class DatabaseManager:
         
         print("Student could not be identified.")
         return None, None
+    
