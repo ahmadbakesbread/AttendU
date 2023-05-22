@@ -50,8 +50,9 @@ class DatabaseManager:
 
         username = config['DATABASE']['username']
         password = config['DATABASE']['password']
+        hostname = config['DATABASE']['host']
         try:
-            return mysql.connector.connect(host='localhost', user=username, passwd=password, database=self._db_name)
+            return mysql.connector.connect(host=hostname, user=username, passwd=password, database=self._db_name)
         except mysql.connector.Error as e:
             print("Error connecting to the database", e)
             return None
