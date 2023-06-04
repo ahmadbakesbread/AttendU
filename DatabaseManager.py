@@ -54,8 +54,9 @@ class DatabaseManager:
         username = config['DATABASE']['username']
         password = config['DATABASE']['password']
         driver = config['DATABASE']['driver']
+        hostname = config['DATABASE']['host']
         try:
-            connection_string = f"DRIVER={{{driver}}};SERVER=localhost;DATABASE={self._db_name};UID={username};PWD={password}"
+            connection_string = f"DRIVER={{{driver}}};SERVER={hostname};DATABASE={self._db_name};UID={username};PWD={password}"
             return pyodbc.connect(connection_string)
         except pyodbc.Error as e:
             print("Error connecting to the database", e)
