@@ -2,7 +2,7 @@ from __future__ import annotations
 import pickle
 import face_recognition as fr
 import csv
-import mysql.connector
+import pyodbc
 from typing import Tuple, Optional
 from numpy import ndarray
 import configparser
@@ -20,8 +20,8 @@ class DatabaseManager:
 
     === Private Attributes ===
         _db_name (str): The name of the MySQL database.
-        _connection (mysql.connector.MySQLConnection): The connection object for the MySQL database.
-        _cursor (mysql.connector.cursor): The cursor object for executing SQL queries.
+        _connection (pyodbc.Connection): The connection object for the MySQL database.
+        _cursor (pyodbc.Cursor): The cursor object for executing SQL queries.
     """
     def __init__(self) -> None:
         """
@@ -32,10 +32,13 @@ class DatabaseManager:
         config.read('config.ini')
         self._db_name = config['DATABASE']['db_name']
         self._connection = self._create_connection()
-        if self._connection:
+        try:
             self._cursor = self._connection.cursor()
+        except pyodbc.Error as e:
+            print("Error creating cursor", e)
+            self._cursor = None
     
-    def _create_connection(self) -> Optional[mysql.connector.MySQLConnection]:
+    def _create_connection(self) -> Optional[pyodbc.Connection]:
         """
         Establishes a connection to the MySQL database using a specified configuration.
 
@@ -43,16 +46,18 @@ class DatabaseManager:
             Connection to the MySQL database or None if a connection could not be established.
 
         Raises:
-            mysql.connector.Error: If a connection to the database cannot be established.
+            pyodbc.Error: If a connection to the database cannot be established.
         """
         config = configparser.ConfigParser()
         config.read('config.ini')
 
         username = config['DATABASE']['username']
         password = config['DATABASE']['password']
+        driver = config['DATABASE']['driver']
         try:
-            return mysql.connector.connect(host='localhost', user=username, passwd=password, database=self._db_name)
-        except mysql.connector.Error as e:
+            connection_string = f"DRIVER={{{driver}}};SERVER=localhost;DATABASE={self._db_name};UID={username};PWD={password}"
+            return pyodbc.connect(connection_string)
+        except pyodbc.Error as e:
             print("Error connecting to the database", e)
             return None
     
@@ -61,19 +66,14 @@ class DatabaseManager:
         Closes the cursor and connection to the database.
 
         Raises:
-            mysql.connector.Error: If the cursor/connection is already closed.
+            pyodbc.Error: If the cursor/connection is already closed.
         """
         try:
-            if self._cursor is not None:
-                self._cursor.close()
-        except mysql.connector.Error as e:
-            print(f"Error occurred when trying to close cursor: {e}")
-
-        try:
-            if self._connection is not None and self._connection.is_connected():
-                self._connection.close()
-        except mysql.connector.Error as e:
-            print(f"Error occurred when trying to close connection: {e}")
+            self._connection.execute("SELECT 1")
+        except pyodbc.Error:
+            print("Connection already closed.")
+        else:
+            self._connection.close()
     
     def __enter__(self) -> DatabaseManager:
         """
@@ -104,7 +104,6 @@ class DatabaseManager:
         """
         self.close_connection()
 
-
     def initialize_database(self) -> bool:
         """
         Initializes the specified database, removing all existing student data
@@ -116,7 +115,7 @@ class DatabaseManager:
         # Resetting (emptying) the database. 
         try :
             self._cursor.execute(f"DELETE FROM {self._db_name}.students")  
-        except mysql.connector.Error as e:
+        except pyodbc.Error as e:
             print(f"Error occurred while attempting to delete from the database: {e}")
             return False
 
@@ -143,10 +142,10 @@ class DatabaseManager:
                     # If face encoding computation is successful, serialize it and store it in the database.
                     if len(face_encoding) > 0:  
                         serial_face_encoding = pickle.dumps(face_encoding[0])  
-                        query = f"INSERT INTO {self._db_name}.students (student_id, full_name, face_encoding) VALUES (%s, %s, %s)"
+                        query = f"INSERT INTO {self._db_name}.students (student_id, full_name, face_encoding) VALUES (?, ?, ?)"
                         try:
                             self._cursor.execute(query, (student_number, student_name, serial_face_encoding))
-                        except mysql.connector.Error as e:
+                        except pyodbc.Error as e:
                             print(f"Error occurred while attempting to insert {student_number} into the database: {e}")
                             continue
         except FileNotFoundError:
@@ -186,10 +185,10 @@ class DatabaseManager:
 
         if len(face_encoding) > 0:
             serial_face_encoding = pickle.dumps(face_encoding)      
-            query = f"INSERT INTO {self._db_name}.students (student_id, full_name, face_encoding) VALUES (%s, %s, %s)"
+            query = f"INSERT INTO {self._db_name}.students (student_id, full_name, face_encoding) VALUES (?, ?, ?)"
             try:
                 self._cursor.execute(query, (student_number, student_name, serial_face_encoding))
-            except mysql.connector.Error as e:
+            except pyodbc.Error as e:
                 print(f"Error occurred while attempting to insert {student_number} into the database: {e}")
                 return False
         
@@ -213,7 +212,7 @@ class DatabaseManager:
         try:
             query = f"SELECT student_id, full_name, face_encoding FROM {self._db_name}.students"
             self._cursor.execute(query)
-        except mysql.connector.Error as e:
+        except pyodbc.Error as e:
             print(f"Error occurred while attempting to fetch student's data from the database: {e}")
             return None, None
         
