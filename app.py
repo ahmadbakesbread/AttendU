@@ -1,8 +1,10 @@
 from flask import Flask, request, jsonify
 from DatabaseManager import DatabaseManager
+from configparser import ConfigParser
 import json
 
 app = Flask(__name__)
+
 
 @app.route('/initialize_database', methods=['POST'])
 def initialize_database():
