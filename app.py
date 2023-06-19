@@ -1,46 +1,34 @@
 from flask import Flask, request, jsonify
-from DatabaseManager import DatabaseManager
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.dialects.mysql import mysqldb
+from Models import Base, Teacher
+import bcrypt
 from configparser import ConfigParser
-import json
+from sqlalchemy.dialects.mysql import pymysql
+from urllib.parse import quote
 
 app = Flask(__name__)
 
+config = ConfigParser()
+config.read('config.ini')
 
-@app.route('/initialize_database', methods=['POST'])
-def initialize_database():
-    with DatabaseManager() as db_manager:
-        result = db_manager.initialize_database()
-    if result["status"] == "success":
-        response = jsonify({"status": result["status"], "message": result["message"]})
-        response.status_code = 200
-    elif result["status"] == "partial":
-        response = jsonify({"status": result["status"], "message": result["message"], "errors": result["errors"]})
-        response.status_code = 206
-    else:
-        response = jsonify({"status": result["status"], "message": result["message"], "errors": result["errors"]})
-        response.status_code = result["code"]
+host = config['DATABASE']['host']
+user = config['DATABASE']['username']
+password = config['DATABASE']['password']
+database = config['DATABASE']['db_name']
+driver = config['DATABASE']['driver']
+port = config['DATABASE']['port']
 
-    return response
+password = quote(password, safe='')
 
+# Create the SQLAlchemy engine
+engine = create_engine(f'mysql+pymysql://{user}:{password}@{host}:{port}/{database}')
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
-@app.route('/add_student', methods=['POST'])
-def add_student():
-    data = request.get_json()
-    student_number = data['student_number']
-    student_name = data['student_name']
-    img_path = data['img_path']
-    
-    with DatabaseManager() as db_manager:
-        result = db_manager.add_student(student_number, student_name, img_path)
-
-    if result["status"] == "success":
-        response = jsonify({"status": result["status"], "message": result["message"]})
-        response.status_code = 200
-    else:
-        response = jsonify({"status": result["status"], "message": result["message"], "errors": result["errors"]})
-        response.status_code = result["code"]
-
-    return response
+# Base.metadata.create_all(bind=engine)
+# Use this to create all the tables and information. 
+# Only need to run this once!
 
 
 if __name__ == '__main__':

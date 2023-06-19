@@ -15,7 +15,7 @@ def main():
     to confirm their identity.
     """
     with DatabaseManager() as db_manager:
-        db_manager.initialize_database()
+        print(db_manager.initialize_database())
         db_manager.add_student('2456248501', 'Lebron James', 'lebron.jpg') # New student added to the database
 
         video_capture = cv2.VideoCapture(0, cv2.CAP_DSHOW) # Captures Video & Makes Camera Setup Faster
