@@ -4,6 +4,7 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.sql.schema import Table
 from sqlalchemy.sql.sqltypes import Date, Boolean, PickleType
 from sqlalchemy.exc import SQLAlchemyError
+from flask_login import UserMixin
 from Helpers import image_to_encoding
 import bcrypt
 
@@ -19,11 +20,38 @@ parent_student_association = Table('parent_student', Base.metadata,
     Column('student_id', Integer, ForeignKey('students.id'))
 )
 
+class User(UserMixin, Base):
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, index=True)
+    type = Column(String(50))
+    name = Column(String(60), nullable=False)
+    email = Column(String(255), unique=True, index=True, nullable=False)
+    image = Column(String(1000))
+    password = Column(LargeBinary(60), nullable=False)
+
+    __mapper_args__ = {
+        'polymorphic_identity': 'user',
+        'polymorphic_on': type
+    }
+
+    def __init__(self, name, email, password, image=None) -> None:
+        self.name = name
+        self.email = email
+        self.image = image
+        self.password = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt())
+    
+    def is_active(self):
+        return True
+    
+    def get_id(self):
+        return str(self.id)
+
 class Class(Base):
     __tablename__ = 'classes'
 
     id = Column(Integer, primary_key=True)
-    teacher_id = Column(Integer, ForeignKey('teachers.id'))
+    teacher_id = Column(Integer, ForeignKey('teachers.id', ondelete='CASCADE'))
     class_name = Column(String(150), nullable=False)
 
     teacher = relationship('Teacher', back_populates='classes')
@@ -80,22 +108,15 @@ class Attendance(Base):
     _class = relationship('Class', back_populates='attendances')
 
 
-class Teacher(Base):
+class Teacher(User):
     __tablename__ = "teachers"
 
-    id = Column(Integer, primary_key=True, index=True)
-    name = Column(String(60), nullable=False)
-    email = Column(String(255), unique=True, index=True, nullable=False)
-    image = Column(String(1000))
-    password = Column(LargeBinary(60), nullable=False)
+    id = Column(Integer, ForeignKey('users.id'), primary_key=True)
     classes = relationship('Class', back_populates='teacher')
 
-
-    def __init__(self, name, email, password, image=None) -> None:
-        self.name = name
-        self.email = email
-        self.image = image
-        self.password = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt())
+    __mapper_args__ = {
+        'polymorphic_identity':'teacher',
+    }
     
     def create_class(self, session: Session, class_name: str):
         try:
@@ -131,22 +152,15 @@ class Teacher(Base):
             raise
 
 
-class Parent(Base):
+class Parent(User):
     __tablename__ = "parents"
 
-    id = Column(Integer, primary_key=True, index=True)
-    name = Column(String(60), nullable=False)
-    email = Column(String(255), unique=True, index=True, nullable=False)
-    image = Column(String(1000))
-    password = Column(LargeBinary(60), nullable=False)
+    id = Column(Integer, ForeignKey('users.id'), primary_key=True)
     children = relationship("Student", secondary=parent_student_association, back_populates="parents")
 
-
-    def __init__(self, name, email, password, image=None) -> None:
-        self.name = name
-        self.email = email
-        self.image = image
-        self.password = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt())
+    __mapper_args__ = {
+        'polymorphic_identity':'parent',
+    }
     
     def add_child(self, session: Session, student_id: int):
         try:
@@ -199,26 +213,23 @@ class Parent(Base):
             session.rollback()
             raise
 
-class Student(Base):
+class Student(User):
     __tablename__ = "students"
 
-    id = Column(Integer, primary_key=True, index=True)
-    name = Column(String(60), nullable=False)
-    email = Column(String(255), unique=True, index=True, nullable=False)
-    image = Column(String(1000))
-    password = Column(LargeBinary(60), nullable=False)
+    id = Column(Integer, ForeignKey('users.id'), primary_key=True)
     face_vector = Column(PickleType, nullable=True)
     classes = relationship('Class', secondary=student_class_association, back_populates='students')
     parents = relationship("Parent", secondary=parent_student_association, back_populates="children")
     attendances = relationship('Attendance', back_populates='student')
 
-    def __init__(self, name, email, password, image) -> None:
-        self.name = name
-        self.email = email
-        self.image = image
+    __mapper_args__ = {
+        'polymorphic_identity':'student',
+    }
+
+    def __init__(self, name, email, password, image=None) -> None:
+        super().__init__(name, email, password, image)
         if self.image:
             self._update_face_vector()
-        self.password = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt())
     
     def join_class(self, session: Session, class_id: int):
         try:
