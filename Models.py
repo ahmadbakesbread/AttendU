@@ -16,9 +16,22 @@ student_class_association = Table('student_class', Base.metadata,
 )
 
 parent_student_association = Table('parent_student', Base.metadata,
-    Column('parent_id', Integer, ForeignKey('parents.id')),
-    Column('student_id', Integer, ForeignKey('students.id'))
+    Column('parent_id', Integer, ForeignKey('parents.id', ondelete='CASCADE')),
+    Column('student_id', Integer, ForeignKey('students.id', ondelete='CASCADE'))
 )
+
+
+class ConnectionRequest(Base):
+    __tablename__ = 'connection_requests'
+    
+    id = Column(Integer, primary_key=True)
+    sender_id = Column(Integer, ForeignKey('users.id'))
+    recipient_email = Column(String(255))
+    status = Column(String(50), default='pending')
+
+    sender = relationship('User', back_populates='outgoing_requests', foreign_keys=[sender_id])
+    recipient = relationship('User', foreign_keys=[recipient_email], primaryjoin='User.email == ConnectionRequest.recipient_email')
+
 
 class User(UserMixin, Base):
     __tablename__ = "users"
@@ -29,6 +42,10 @@ class User(UserMixin, Base):
     email = Column(String(255), unique=True, index=True, nullable=False)
     image = Column(String(1000))
     password = Column(LargeBinary(60), nullable=False)
+    outgoing_requests = relationship('ConnectionRequest', foreign_keys='ConnectionRequest.sender_id')
+    incoming_requests = relationship('ConnectionRequest', primaryjoin='User.email == foreign(ConnectionRequest.recipient_email)', overlaps="recipient")
+
+
 
     __mapper_args__ = {
         'polymorphic_identity': 'user',
@@ -46,6 +63,14 @@ class User(UserMixin, Base):
     
     def get_id(self):
         return str(self.id)
+    
+    def get_profile(self):
+        return {
+            "id": self.id,
+            "name": self.name,
+            "email": self.email,
+            "image": self.image,
+        }
 
 class Class(Base):
     __tablename__ = 'classes'
@@ -100,7 +125,7 @@ class Attendance(Base):
 
     id = Column(Integer, primary_key=True)
     date = Column(Date, nullable=False)
-    attended = Column(Boolean, nullable=False)
+    attended = Column(Boolean, nullable=False, default=False)
     student_id = Column(Integer, ForeignKey('students.id'))
     class_id = Column(Integer, ForeignKey('classes.id'))
 
@@ -117,13 +142,14 @@ class Teacher(User):
     __mapper_args__ = {
         'polymorphic_identity':'teacher',
     }
-    
+
     def create_class(self, session: Session, class_name: str):
         try:
             session.add(Class(teacher_id=self.id, class_name=class_name))
             session.commit()
-        except SQLAlchemyError:
+        except SQLAlchemyError as e:
             session.rollback()
+            print(str(e))
             raise
 
     def delete_class(self, session: Session, class_id: int):
@@ -150,6 +176,20 @@ class Teacher(User):
         except SQLAlchemyError:
             session.rollback()
             raise
+    
+    def get_student_profile(self, session: Session, student_id: int):
+        student = session.query(Student).join(student_class_association).join(Class).filter(Student.id == student_id, Class.teacher_id == self.id).first()
+
+        if student:
+            return {
+                "id": student.id,
+                "name": student.name,
+                "email": student.email,
+                "image": student.image,
+                "parents": [{"id": parent.id, "name": parent.name, "email": parent.email} for parent in student.parents]
+            }
+        else:
+            raise ValueError("Student not found in this class")
 
 
 class Parent(User):
@@ -185,9 +225,6 @@ class Parent(User):
         except SQLAlchemyError:
             session.rollback()
             raise
-
-    def get_children_classes(self):
-        return [[_class for _class in child.classes] for child in self.children]
     
     def get_child_attendance(self, session: Session, student_id: int, class_id: int):
         try:
@@ -199,6 +236,32 @@ class Parent(User):
         except SQLAlchemyError:
             session.rollback()
             raise
+    
+    def get_child(self, session: Session, student_id: int):
+        try:
+            student = [student for student in self.children if student.id == student_id]
+            if student:
+                return student[0]
+            else:
+                raise ValueError("Student not found in this parent")
+        except SQLAlchemyError:
+            session.rollback()
+            raise
+    
+    def get_child_profile(self, session: Session, student_id: int):
+        student = session.query(Student).join(parent_student_association).filter(Student.id == student_id, Parent.id == self.id).first()
+        if student:
+            other_parents = [parent for parent in student.parents if parent.id != self.id]
+            return {
+                "id": student.id,
+                "name": student.name,
+                "email": student.email,
+                "image": student.image,
+                "classes": [{"id": _class.id, "name": _class.class_name} for _class in student.classes],
+                "other_parents": [{"id": parent.id, "name": parent.name, "email": parent.email} for parent in other_parents]
+            }
+        else:
+            raise ValueError("Student not found or you are not the parent of this student")
 
     def update_profile(self, session: Session, name=None, email=None, image=None):
         try:
@@ -219,7 +282,7 @@ class Student(User):
     id = Column(Integer, ForeignKey('users.id'), primary_key=True)
     face_vector = Column(PickleType, nullable=True)
     classes = relationship('Class', secondary=student_class_association, back_populates='students')
-    parents = relationship("Parent", secondary=parent_student_association, back_populates="children")
+    parents = relationship('Parent', secondary=parent_student_association, back_populates='children')
     attendances = relationship('Attendance', back_populates='student')
 
     __mapper_args__ = {
