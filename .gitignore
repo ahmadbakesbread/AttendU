@@ -35,3 +35,4 @@ build/
 
 # Ignore configuration file
 config.ini
+tests/

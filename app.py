@@ -10,9 +10,13 @@ from Helpers import is_valid_email
 import bcrypt
 
 app = Flask(__name__)
+login_manager = LoginManager()
+login_manager.init_app(app)
 
 config = ConfigParser()
 config.read('config.ini')
+
+app.config['SECRET_KEY'] = config['FLASK']['secret_key']
 
 host = config['DATABASE']['host']
 user = config['DATABASE']['username']
@@ -26,6 +30,11 @@ password = quote(password, safe='')
 # Create the SQLAlchemy engine
 engine = create_engine(f'mysql+pymysql://{user}:{password}@{host}:{port}/{database}')
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+@login_manager.user_loader
+def load_user(user_id):
+    session = SessionLocal()
+    return session.query(User).get(int(user_id))
 
 ### User Endpoints ###
 
@@ -45,7 +54,7 @@ def login():
     if user is None:
         return jsonify({"status": "error", "message": "Email does not exist", "code": 403}), 403
     
-    if not bcrypt.checkpw(password.encode('utf-8'), user.password.decode('utf-8')):
+    if not bcrypt.checkpw(password.encode('utf-8'), user.password):
         return jsonify({"status": "error", "message": "Incorrect password", "code": 403}), 403
 
     # Log the user in
@@ -193,10 +202,10 @@ def register_teacher():
             return jsonify({"status": "error", "message": "Invalid email format", "code": 400}), 400
 
         # Check if a teacher with this email already exists
-        existing_teacher = session.query(Teacher).filter_by(email=email).first()
+        existing_user = session.query(User).filter_by(email=email).first()
         
-        if existing_teacher:
-            return jsonify({"status": "error", "message": "A teacher with this email already exists", "code": 400}), 400
+        if existing_user:
+            return jsonify({"status": "error", "message": "A user with this email already exists", "code": 400}), 400
 
         # Hash password before saving        
         new_teacher = Teacher(name=name, email=email, password=password, image=image)
@@ -227,15 +236,21 @@ def update_teacher():
         # If no fields to update were provided
         if not name and not email and not image:
             return jsonify({"status": "error", "message": "No fields to update were provided", "code": 400}), 400
+        
+        if not isinstance(current_user, Teacher):
+            return jsonify({"status": "error", "message": "User is not a teacher", "code": 403}), 403
 
         # Find the teacher
-        teacher = session.query(Teacher).filter_by(user_id=current_user.id).first()
+        teacher = session.query(Teacher).filter_by(id=current_user.id).first()
         if not teacher:
             return jsonify({"status": "error", "message": "Teacher not found", "code": 404}), 404
 
         # If an email was provided, validate it
         if email and not is_valid_email(email):
             return jsonify({"status": "error", "message": "Invalid email Format", "code": 400}), 400
+        
+        if session.query(User).filter_by(email=email).first():
+            return jsonify({"status": "error", "message": "A user with this email already exists", "code": 403}), 403
         
         # Update the teacher's profile
         teacher.update_profile(session=session, name=name, email=email, image=image)
@@ -257,22 +272,26 @@ def create_class():
     try:
         data = request.json
         class_name = data.get('class_name')
+
+        # Check if user is a teacher
+        if not isinstance(current_user, Teacher):
+            return jsonify({"status": "error", "message": "User is not a teacher", "code": 404}), 403
+
+        # Check if the teacher exists
+        teacher = session.query(Teacher).filter_by(id=current_user.id).first()
+        if not teacher:
+            return jsonify({"status": "error", "message": "Teacher not found", "code": 404}), 404
         
         if not class_name:
-            return jsonify({"status": "error", "message": "Missing class name", "code": 400})
+            return jsonify({"status": "error", "message": "Missing class name", "code": 400}), 400
         
         if len(class_name) > 60:
-            return jsonify({"status": "error", "message": "Class name too long", "code": 400})
+            return jsonify({"status": "error", "message": "Class name too long", "code": 400}), 400
 
         # Check if a class with this name already exists for this teacher
         existing_class = session.query(Class).filter_by(class_name=class_name, teacher_id=teacher.id).first()
         if existing_class:
-            return jsonify({"status": "error", "message": "A class with this name already exists for this teacher", "code": 400})
-
-        # Check if the teacher exists
-        teacher = session.query(Teacher).filter_by(user_id=current_user.id).first()
-        if not teacher:
-            return jsonify({"status": "error", "message": "Teacher not found", "code": 404})
+            return jsonify({"status": "error", "message": "A class with this name already exists for this teacher", "code": 400}), 400
 
         new_class = Class(teacher_id=teacher.id, class_name=class_name)
 
@@ -338,19 +357,12 @@ def register_parent():
             return jsonify({"status": "error", "message": "Invalid email format", "code": 400}), 400
 
         # Check if a parent with this email already exists
-        existing_parent = session.query(Parent).filter_by(email=email).first()
+        existing_user = session.query(User).filter_by(email=email).first()
         
-        if existing_parent:
-            return jsonify({"status": "error", "message": "A parent with this email already exists", "code": 400}), 400
+        if existing_user:
+            return jsonify({"status": "error", "message": "A user with this email already exists", "code": 400}), 400
 
-        # Hash password before saving
-        hashed_password = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt())
-
-        user = User(email=email, password=hashed_password)
-        session.add(user)
-        session.flush()
-        
-        new_parent = Parent(user_id=user.id, name=name, image=image)
+        new_parent = Parent(name=name, email=email, password=password, image=image)
 
         session.add(new_parent)
         session.commit()
@@ -376,15 +388,21 @@ def update_parent():
         # If no fields to update were provided
         if not name and not email and not image:
             return jsonify({"status": "error", "message": "No fields to update were provided", "code": 400}), 400
+        
+        if not isinstance(current_user, Parent):
+            return jsonify({"status": "error", "message": "User is not a parent", "code": 403}), 403
 
         # Find the Parent
-        parent = session.query(Parent).filter_by(user_id=current_user.id).first()
+        parent = session.query(Parent).filter_by(id=current_user.id).first()
         if not parent:
             return jsonify({"status": "error", "message": "Parent not found", "code": 404}), 404
 
         # If an email was provided, validate it
         if email and not is_valid_email(email):
             return jsonify({"status": "error", "message": "Invalid email Format", "code": 400}), 400
+        
+        if session.query(User).filter_by(email=email).first():
+            return jsonify({"status": "error", "message": "A user with this email already exists", "code": 403}), 403
         
         # Update the parent's profile
         parent.update_profile(session=session, name=name, email=email, image=image)
@@ -417,22 +435,15 @@ def register_student():
             return jsonify({"status": "error", "message": "Name too long", "code": 400}), 400
         
         if not is_valid_email(email):
-            return jsonify({"status": "error", "message": "Invalid email format", "code": 400}), 400
+            return jsonify({"status": "error", "message": "Invalid email", "code": 400}), 400
 
         # Check if a student with this email already exists
-        existing_student = session.query(Student).filter_by(email=email).first()
+        existing_user = session.query(User).filter_by(email=email).first()
         
-        if existing_student:
-            return jsonify({"status": "error", "message": "A Student with this email already exists", "code": 400}), 400
+        if existing_user:
+            return jsonify({"status": "error", "message": "A user with this email already exists", "code": 400}), 400
 
-        # Hash password before saving
-        hashed_password = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt())
-
-        user = User(email=email, password=hashed_password)
-        session.add(user)
-        session.flush()
-        
-        new_student = Student(user_id=user.id, name=name, image=image)
+        new_student = Student(name=name, email=email, password=password, image=image)
 
         session.add(new_student)
         session.commit()
@@ -459,15 +470,21 @@ def update_student():
         # If no fields to update were provided
         if not name and not email and not image:
             return jsonify({"status": "error", "message": "No fields to update were provided", "code": 400}), 400
+        
+        if not isinstance(current_user, Student):
+            return jsonify({"status": "error", "message": "User is not a student", "code": 403}), 403
 
         # Find the student
-        student = session.query(Student).filter_by(user_id=current_user.id).first()
+        student = session.query(Student).filter_by(id=current_user.id).first()
         if not student:
             return jsonify({"status": "error", "message": "Student not found", "code": 404}), 404
 
         # If an email was provided, validate it
         if email and not is_valid_email(email):
             return jsonify({"status": "error", "message": "Invalid email Format", "code": 400}), 400
+        
+        if session.query(User).filter_by(email=email).first():
+            return jsonify({"status": "error", "message": "A user with this email already exists", "code": 403}), 403
         
         # Update the student's profile
         student.update_profile(session=session, name=name, email=email, image=image)
@@ -483,12 +500,44 @@ def update_student():
 
 
 ### Class Endpoints ###
+@app.route('/classes/<int:class_id>/students', methods=['GET'])
+@login_required
+def get_students(class_id):
+    session = SessionLocal()
+    try:
+        if not isinstance(current_user, Teacher):
+            return jsonify({"status": "error", "message": "Unauthorized", "code": 403}), 403 
+
+        # Check if the logged in user is the teacher of the class
+        teacher_class = session.query(Class).filter_by(id=class_id, teacher_id=current_user.id).first()
+        if not teacher_class:
+            return jsonify({"status": "error", "message": "Unauthorized", "code": 403}), 403
+
+        students = teacher_class.students
+
+        # Transform students list into JSON serializable format
+        students_json = [
+            {
+                'name': student.name,
+                'email': student.email,
+            }
+            for student in students
+        ]
+
+        return jsonify({"status": "success", "students": students_json, "code": 200}), 200
+    
+    except SQLAlchemyError as e:
+        session.rollback()
+        return jsonify({"status": "error", "message": "An error occurred while adding the student to the class", "code": 500}), 500
+    
+    finally:
+        session.close()
+        
 
 @app.route('/classes/<int:class_id>/students/<int:student_id>', methods=['PUT'])
 @login_required
 def add_student_to_class(class_id, student_id):
     session = SessionLocal()
-    
     try:
         # Check if the logged in user is the teacher of the class
         teacher_class = session.query(Class).filter_by(id=class_id, teacher_id=current_user.get_id()).first()
