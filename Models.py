@@ -5,8 +5,8 @@ from sqlalchemy.sql.schema import Table
 from sqlalchemy.sql.sqltypes import Date, Boolean, PickleType
 from sqlalchemy.exc import SQLAlchemyError
 from flask_login import UserMixin
-from Helpers import image_to_encoding
-import bcrypt
+from Helpers import image_to_encoding, generate_class_code
+import bcrypt, string, random
 
 Base = declarative_base()
 
@@ -26,11 +26,15 @@ class ConnectionRequest(Base):
     
     id = Column(Integer, primary_key=True)
     sender_id = Column(Integer, ForeignKey('users.id'))
-    recipient_email = Column(String(255))
+    recipient_id = Column(Integer, ForeignKey('users.id'))
+    class_id = Column(Integer, ForeignKey('classes.id'))
     status = Column(String(50), default='pending')
+    type = Column(String(50), nullable=False)
 
     sender = relationship('User', back_populates='outgoing_requests', foreign_keys=[sender_id])
-    recipient = relationship('User', foreign_keys=[recipient_email], primaryjoin='User.email == ConnectionRequest.recipient_email')
+    recipient = relationship('User', back_populates='incoming_requests', foreign_keys=[recipient_id])
+    class_ = relationship('Class', back_populates='requests')
+
 
 
 class User(UserMixin, Base):
@@ -42,10 +46,8 @@ class User(UserMixin, Base):
     email = Column(String(255), unique=True, index=True, nullable=False)
     image = Column(String(1000))
     password = Column(LargeBinary(60), nullable=False)
-    outgoing_requests = relationship('ConnectionRequest', foreign_keys='ConnectionRequest.sender_id')
-    incoming_requests = relationship('ConnectionRequest', primaryjoin='User.email == foreign(ConnectionRequest.recipient_email)', overlaps="recipient")
-
-
+    outgoing_requests = relationship('ConnectionRequest', back_populates='sender', foreign_keys='ConnectionRequest.sender_id')
+    incoming_requests = relationship('ConnectionRequest', back_populates='recipient', foreign_keys='ConnectionRequest.recipient_id')
 
     __mapper_args__ = {
         'polymorphic_identity': 'user',
@@ -76,13 +78,18 @@ class Class(Base):
     __tablename__ = 'classes'
 
     id = Column(Integer, primary_key=True)
-    teacher_id = Column(Integer, ForeignKey('teachers.id', ondelete='CASCADE'))
+    teacher_id = Column(Integer, ForeignKey('teachers.id'))
     class_name = Column(String(150), nullable=False)
 
     teacher = relationship('Teacher', back_populates='classes')
     students = relationship('Student', secondary=student_class_association, back_populates='classes')
     attendances = relationship('Attendance', back_populates='_class')
+    class_code = Column(String(50), nullable=False, unique=True)
+    requests = relationship('ConnectionRequest', back_populates='class_', foreign_keys='ConnectionRequest.class_id')
 
+    def __init__(self, *args, **kwargs):
+        super(Class, self).__init__(*args, **kwargs)
+        self.class_code = generate_class_code()
 
     def add_student(self, session: Session, student_id: int):
         try:
@@ -137,7 +144,7 @@ class Teacher(User):
     __tablename__ = "teachers"
 
     id = Column(Integer, ForeignKey('users.id'), primary_key=True)
-    classes = relationship('Class', back_populates='teacher')
+    classes = relationship('Class', back_populates='teacher', cascade="all, delete-orphan")
 
     __mapper_args__ = {
         'polymorphic_identity':'teacher',
