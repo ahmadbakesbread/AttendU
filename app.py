@@ -3,11 +3,14 @@ from flask_login import LoginManager, login_user, logout_user, login_required, c
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.exc import SQLAlchemyError
+from werkzeug.utils import secure_filename
 from Models import Base, Teacher, Class, User, Student, Parent, ConnectionRequest, student_class_association, parent_student_association
 from configparser import ConfigParser
 from urllib.parse import quote
 from Helpers import is_valid_email
 import bcrypt
+import os
+import imghdr
 
 app = Flask(__name__)
 login_manager = LoginManager()
@@ -25,6 +28,12 @@ database = config['DATABASE']['db_name']
 driver = config['DATABASE']['driver']
 port = config['DATABASE']['port']
 
+# specify the path where you want to save your images
+UPLOAD_FOLDER = './images'
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+# limit the maximum file size to 1MB
+app.config['MAX_CONTENT_LENGTH'] = 2 * 1024 * 1024  # 2 MB
+
 password = quote(password, safe='')
 
 # Create the SQLAlchemy engine
@@ -36,7 +45,7 @@ def load_user(user_id):
     session = SessionLocal()
     return session.get(User, user_id)
 
-### User Endpoints ###
+##### User Endpoints #####
 
 @app.route('/login', methods=['POST'])
 def login():
@@ -88,6 +97,35 @@ def delete_user():
     
     finally:
         session.close()
+
+@app.route('/upload', methods=['POST'])
+def upload_file():
+    if 'file' not in request.files:
+        return jsonify({"status": "error", "message": "No file part", "code": 400}), 400
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({"status": "error", "message": "No selected file", "code": 400}), 400
+
+    if file and allowed_file(file.filename):
+        filename = secure_filename(file.filename)
+        file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+        file.save(file_path)
+
+        # after saving the file, check that it's a valid image
+        image_type = imghdr.what(file_path)
+        if not image_type:
+            os.remove(file_path)  # remove the file if it's not a valid image
+            return jsonify({"status": "error", "message": "Not a valid image", "code": 400}), 400
+
+        return jsonify({"status": "success", "message": "File uploaded successfully", "code": 200}), 200
+    return jsonify({"status": "error", "message": "File type not allowed", "code": 400}), 400
+
+def allowed_file(filename):
+    ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif'}
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+
+##### CONNECTIONS #####
 
 @app.route('/teacher/classes/<int:class_id>/send', methods=['POST'])
 @login_required
@@ -514,22 +552,25 @@ def student_remove_parent(parent_id):
     finally:
         session.close()
 
-### Teacher Endpoints ###
+##### Teacher Endpoints #####
 
 @app.route('/teachers', methods=['POST'])
 def register_teacher():
     session = SessionLocal()
-    data = request.json
+    data = request.form
 
     name = data.get('name')
     email = data.get('email')
     password = data.get('password')
-    image = data.get('image')
+
+    image_path = None  # Default value for image_path
+    file = request.files.get('image')
     
     try:
+
         if not name or not email or not password:
             return jsonify({"status": "error", "message": "Missing required fields", "code": 400}), 400
-        
+
         if len(name) > 60:
             return jsonify({"status": "error", "message": "Name too long", "code": 400}), 400
         
@@ -540,10 +581,15 @@ def register_teacher():
         existing_user = session.query(User).filter_by(email=email).first()
         
         if existing_user:
-            return jsonify({"status": "error", "message": "A user with this email already exists", "code": 400}), 400
+            return jsonify({"status": "error", "message": "A user with this email already exists", "code": 409}), 409
+        
+        if file and allowed_file(file.filename):
+            filename = secure_filename(file.filename)
+            image_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+            file.save(image_path)
 
         # Hash password before saving        
-        new_teacher = Teacher(name=name, email=email, password=password, image=image)
+        new_teacher = Teacher(name=name, email=email, password=password, image=image_path)
 
         session.add(new_teacher)
         session.commit()
@@ -560,18 +606,17 @@ def register_teacher():
 @login_required
 def update_teacher():
     session = SessionLocal()
-    data = request.json
-
+    data = request.form  # changed from request.json
+    image = request.files['image'] if 'image' in request.files else None
     name = data.get('name')
     email = data.get('email')
-    image = data.get('image')
 
     try:
         # If no fields to update were provided
-        if not name and not email and not image:
+        if not name and not email and image is None:
             return jsonify({"status": "error", "message": "No fields to update were provided", "code": 400}), 400
         
-        if not isinstance(current_user, Teacher):
+        if not isinstance(current_user._get_current_object(), Teacher):
             return jsonify({"status": "error", "message": "User is not a teacher", "code": 403}), 403
 
         # Find the teacher
@@ -580,14 +625,22 @@ def update_teacher():
             return jsonify({"status": "error", "message": "Teacher not found", "code": 404}), 404
 
         # If an email was provided, validate it
-        if email and not is_valid_email(email):
-            return jsonify({"status": "error", "message": "Invalid email Format", "code": 400}), 400
+        if email:
+            if not is_valid_email(email):
+                return jsonify({"status": "error", "message": "Invalid email Format", "code": 400}), 400
+
+            if session.query(User).filter(User.email==email, User.id!=current_user.id).first():
+                return jsonify({"status": "error", "message": "A user with this email already exists", "code": 403}), 403
         
-        if session.query(User).filter_by(email=email).first():
-            return jsonify({"status": "error", "message": "A user with this email already exists", "code": 403}), 403
-        
+        # If an image was provided, validate it, save it and get its path
+        image_path = None
+        if image and allowed_file(image.filename):
+            filename = secure_filename(image.filename)
+            image_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+            image.save(image_path)
+
         # Update the teacher's profile
-        teacher.update_profile(session=session, name=name, email=email, image=image)
+        teacher.update_profile(session=session, name=name, email=email, image=image_path)
         return jsonify({"status": "success", "message": "Teacher updated", "code": 200}), 200
 
     except SQLAlchemyError as e:
@@ -596,6 +649,7 @@ def update_teacher():
 
     finally:
         session.close()
+
 
 ### Class/Teacher Endpoints ###
 @app.route('/classes', methods=['POST'])
@@ -673,12 +727,13 @@ def delete_class(class_id):
 @app.route('/parents', methods=['POST'])
 def register_parent():
     session = SessionLocal()
-    data = request.json
+    data = request.form
 
     name = data.get('name')
     email = data.get('email')
     password = data.get('password')
-    image = data.get('image')
+    image_path = None  # Default value for image_path
+    file = request.files.get('image')
     
     try:
         if not name or not email or not password:
@@ -694,9 +749,14 @@ def register_parent():
         existing_user = session.query(User).filter_by(email=email).first()
         
         if existing_user:
-            return jsonify({"status": "error", "message": "A user with this email already exists", "code": 400}), 400
+            return jsonify({"status": "error", "message": "A user with this email already exists", "code": 409}), 409
+        
+        if file and allowed_file(file.filename):
+            filename = secure_filename(file.filename)
+            image_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+            file.save(image_path)
 
-        new_parent = Parent(name=name, email=email, password=password, image=image)
+        new_parent = Parent(name=name, email=email, password=password, image=image_path)
 
         session.add(new_parent)
         session.commit()
@@ -777,41 +837,55 @@ def get_children():
 @app.route('/students', methods=['POST'])
 def register_student():
     session = SessionLocal()
-    data = request.json
+    data = request.form
 
     name = data.get('name')
     email = data.get('email')
     password = data.get('password')
-    image = data.get('image')
+    file = request.files.get('image')
     
     try:
-        if not name or not email or not password or not image:
+        if not name or not email or not password or not file:
             return jsonify({"status": "error", "message": "Missing required fields", "code": 400}), 400
         
         if len(name) > 60:
             return jsonify({"status": "error", "message": "Name too long", "code": 400}), 400
         
         if not is_valid_email(email):
-            return jsonify({"status": "error", "message": "Invalid email", "code": 400}), 400
+            return jsonify({"status": "error", "message": "Invalid email format", "code": 400}), 400
 
         # Check if a student with this email already exists
         existing_user = session.query(User).filter_by(email=email).first()
         
         if existing_user:
-            return jsonify({"status": "error", "message": "A user with this email already exists", "code": 400}), 400
+            return jsonify({"status": "error", "message": "A user with this email already exists", "code": 409}), 409
+        
+        if not allowed_file(file.filename):
+            return jsonify({"status": "error", "message": "Invalid file type", "code": 400}), 400
+        
+        filename = secure_filename(file.filename)
+        image_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+        file.save(image_path)
 
-        new_student = Student(name=name, email=email, password=password, image=image)
+        new_student = Student(name=name, email=email, password=password, image=image_path)
 
         session.add(new_student)
         session.commit()
         return jsonify({"status": "success", "message": "Student created", "code": 201}), 201
 
     except SQLAlchemyError as e:
+        app.logger.error(f"SQLAlchemyError: {e}")
         session.rollback()
         return jsonify({"status": "error", "message": "An error occurred while creating the student", "code": 500}), 500
+    
+    except ValueError as e:
+        app.logger.error(f"ValueError: {e}")
+        session.rollback()
+        return jsonify({"status": "error", "message": "Cannot recognize a face from the image", "code": 422}), 422
 
     finally:
         session.close()
+
 
 @app.route('/students', methods=['PUT'])
 @login_required
@@ -857,19 +931,26 @@ def update_student():
 @app.route('/classes', methods=['GET'])
 @login_required
 def get_classes():
-    # The currently logged in user must be a student.
-    if not isinstance(current_user, Student):
-        return jsonify({"status": "error", "message": "Access forbidden", "code": 403}), 403
-
     session = SessionLocal()
+    if not isinstance(current_user, Student) or not isinstance(current_user, Teacher):
+            return jsonify({"status": "error", "message": "Access forbidden", "code": 403}), 403
     try:
-        student = session.query(Student).filter_by(id=current_user.id).first()
+        if isinstance(current_user, Student):
+            student = session.query(Student).filter_by(id=current_user.id).first()
 
-        if student is None:
-            return jsonify({"status": "error", "message": "Student not found", "code": 404}), 404
+            if student is None:
+                return jsonify({"status": "error", "message": "Student not found", "code": 404}), 404
 
-        classes = [{"id": _class.id, "name": _class.class_name} for _class in student.classes]
-        return jsonify({"status": "success", "classes": classes, "code": 200}), 200
+            classes = [{"id": _class.id, "name": _class.class_name} for _class in student.classes]
+            return jsonify({"status": "success", "classes": classes, "code": 200}), 200
+        elif isinstance(current_user, Teacher):
+            teacher = session.query(Teacher).filter_by(id=current_user.id).first()
+
+            if teacher is None:
+                return jsonify({"status": "error", "message": "Teacher not found", "code": 404}), 404
+
+            classes = [{"id": _class.id, "name": _class.class_name} for _class in teacher.classes]
+            return jsonify({"status": "success", "classes": classes, "code": 200}), 200
 
     except SQLAlchemyError:
         return jsonify({"status": "error", "message": "An error occurred", "code": 500}), 500

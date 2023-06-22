@@ -5,7 +5,7 @@ import string
 
 def image_to_encoding(img_path: str):
     try:
-        img = fr.load_image_file("./images/" + img_path)
+        img = fr.load_image_file(img_path)
     except FileNotFoundError:
         return None
     
