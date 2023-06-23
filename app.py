@@ -5,8 +5,6 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.exc import SQLAlchemyError
 from werkzeug.utils import secure_filename
 from Models import Base, Teacher, Class, User, Student, Parent, ConnectionRequest, student_class_association, parent_student_association
-from configparser import ConfigParser
-from urllib.parse import quote
 from Helpers import is_valid_email
 import bcrypt
 import os
@@ -16,17 +14,10 @@ app = Flask(__name__)
 login_manager = LoginManager()
 login_manager.init_app(app)
 
-config = ConfigParser()
-config.read('config.ini')
-
-app.config['SECRET_KEY'] = config['FLASK']['secret_key']
-
-host = config['DATABASE']['host']
-user = config['DATABASE']['username']
-password = config['DATABASE']['password']
-database = config['DATABASE']['db_name']
-driver = config['DATABASE']['driver']
-port = config['DATABASE']['port']
+if os.environ.get('FLASK_ENV') == 'testing':
+    app.config.from_object('config.TestConfig')
+else:
+    app.config.from_object('config.ProductionConfig')
 
 # specify the path where you want to save your images
 UPLOAD_FOLDER = './images'
@@ -34,10 +25,8 @@ app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 # limit the maximum file size to 1MB
 app.config['MAX_CONTENT_LENGTH'] = 2 * 1024 * 1024  # 2 MB
 
-password = quote(password, safe='')
-
 # Create the SQLAlchemy engine
-engine = create_engine(f'mysql+pymysql://{user}:{password}@{host}:{port}/{database}')
+engine = create_engine(app.config['SQLALCHEMY_DATABASE_URI'])
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 @login_manager.user_loader
@@ -61,7 +50,7 @@ def login():
         return jsonify({"status": "error", "message": "Invalid email format", "code": 400}), 400 
     
     if user is None:
-        return jsonify({"status": "error", "message": "Email does not exist", "code": 403}), 403
+        return jsonify({"status": "error", "message": "Email could not be found", "code": 403}), 403
     
     if not bcrypt.checkpw(password.encode('utf-8'), user.password):
         return jsonify({"status": "error", "message": "Incorrect password", "code": 403}), 403
@@ -89,9 +78,13 @@ def delete_user():
         
         session.delete(user)
         session.commit()
+
+        logout_user()
+
         return jsonify({"status": "success", "message": "User successfully deleted", "code": 200}), 200
     
     except SQLAlchemyError as e:
+        app.logger.error(f"SQLAlchemyError: {e}")
         session.rollback()
         return jsonify({"status": "error", "message": "An error occurred while deleting the user", "code": 500}), 500
     
@@ -153,14 +146,21 @@ def teacher_send_request_to_student(class_id):
         existing_request = session.query(ConnectionRequest).filter_by(sender_id=current_user.id, recipient_id=recipient.id, class_id=class_id).first()
         if existing_request and existing_request.status == 'pending':
             return jsonify({"status": "error", "message": "Request is already pending", "code": 400}), 400
+        
+        student_existing_request = session.query(ConnectionRequest).filter_by(sender_id=recipient.id, recipient_id=current_user.id, class_id=class_id).first()
+        if student_existing_request and student_existing_request.status == 'pending':
+            class_.students.append(recipient)
+            student_existing_request.status = 'accepted'
+            return jsonify({"status": "success", "message": "Request accepted", "code": 200}), 200
 
         new_request = ConnectionRequest(sender_id=current_user.id, recipient_id=recipient.id, class_id=class_id, type='class_invitation')
         session.add(new_request)
         session.commit()
 
-        return jsonify({"status": "success", "message": "Request sent successfully", "code": 200}), 200
+        return jsonify({"status": "success", "message": "Invite sent successfully", "code": 200}), 200
 
-    except SQLAlchemyError:
+    except SQLAlchemyError as e:
+        app.logger.error(f"SQLAlchemyError: {e}")
         session.rollback()
         return jsonify({"status": "error", "message": "Something went wrong", "code": 500}), 500
 
@@ -208,7 +208,8 @@ def student_respond_to_teacher_request(request_id):
         else:
             return jsonify({"status": "error", "message": "Invalid response", "code": 400}), 400
 
-    except SQLAlchemyError:
+    except SQLAlchemyError as e:
+        app.logger.error(f"SQLAlchemyError: {e}")
         session.rollback()
         return jsonify({"status": "error", "message": "Something went wrong", "code": 500}), 500
 
@@ -236,6 +237,12 @@ def student_join_class():
         existing_request = session.query(ConnectionRequest).filter_by(sender_id=current_user.id, class_id=class_.id).first()
         if existing_request and existing_request.status == 'pending':
             return jsonify({"status": "error", "message": "Request is already pending", "code": 400}), 400
+        
+        teacher_existing_request = session.query(ConnectionRequest).filter_by(sender_id=class_.teacher_id, recipient_id=current_user.id, class_id=class_.id).first()
+        if teacher_existing_request and teacher_existing_request.status == 'pending':
+            class_.students.append(current_user._get_current_object())
+            teacher_existing_request.status = 'accepted'
+            return jsonify({"status": "success", "message": "Request accepted", "code": 200}), 200
 
         new_request = ConnectionRequest(sender_id=current_user.id, recipient_id=class_.teacher_id, class_id=class_.id, type='join_request')
         session.add(new_request)
@@ -243,7 +250,8 @@ def student_join_class():
 
         return jsonify({"status": "success", "message": "Join request sent successfully", "code": 200}), 200
 
-    except SQLAlchemyError:
+    except SQLAlchemyError as e:
+        app.logger.error(f"SQLAlchemyError: {e}")
         session.rollback()
         return jsonify({"status": "error", "message": "Something went wrong", "code": 500}), 500
 
@@ -295,6 +303,7 @@ def teacher_respond_to_student_request(request_id):
             return jsonify({"status": "error", "message": "Invalid response", "code": 400}), 400
 
     except SQLAlchemyError as e:
+        app.logger.error(f"SQLAlchemyError: {e}")
         session.rollback()
         return jsonify({"status": "error", "message": "Something went wrong", "code": 500}), 500
 
@@ -331,7 +340,8 @@ def parent_send_child_request():
 
         return jsonify({"status": "success", "message": "Request sent successfully", "code": 200}), 200
 
-    except SQLAlchemyError:
+    except SQLAlchemyError as e:
+        app.logger.error(f"SQLAlchemyError: {e}")
         session.rollback()
         return jsonify({"status": "error", "message": "Something went wrong", "code": 500}), 500
 
@@ -369,7 +379,8 @@ def student_send_parent_request():
 
         return jsonify({"status": "success", "message": "Request sent successfully", "code": 200}), 200
 
-    except SQLAlchemyError:
+    except SQLAlchemyError as e:
+        app.logger.error(f"SQLAlchemyError: {e}")
         session.rollback()
         return jsonify({"status": "error", "message": "Something went wrong", "code": 500}), 500
 
@@ -414,6 +425,7 @@ def student_respond_to_parent_request(request_id):
             return jsonify({"status": "error", "message": "Invalid response", "code": 400}), 400
 
     except SQLAlchemyError as e:
+        app.logger.error(f"SQLAlchemyError: {e}")
         session.rollback()
         return jsonify({"status": "error", "message": "Something went wrong", "code": 500}), 500
 
@@ -457,6 +469,7 @@ def parent_respond_to_student_request(request_id):
             return jsonify({"status": "error", "message": "Invalid response", "code": 400}), 400
 
     except SQLAlchemyError as e:
+        app.logger.error(f"SQLAlchemyError: {e}")
         session.rollback()
         return jsonify({"status": "error", "message": "Something went wrong", "code": 500}), 500
 
@@ -477,7 +490,8 @@ def student_leave_class(class_id):
 
         return jsonify({"status": "success", "message": "Class left successfully", "code": 200}), 200
 
-    except SQLAlchemyError:
+    except SQLAlchemyError as e:
+        app.logger.error(f"SQLAlchemyError: {e}")
         session.rollback()
         return jsonify({"status": "error", "message": "Something went wrong", "code": 500}), 500
 
@@ -502,7 +516,8 @@ def teacher_remove_student_from_class(class_id, student_id):
 
         return jsonify({"status": "success", "message": "Student removed successfully", "code": 200}), 200
 
-    except SQLAlchemyError:
+    except SQLAlchemyError as e:
+        app.logger.error(f"SQLAlchemyError: {e}")
         session.rollback()
         return jsonify({"status": "error", "message": "Something went wrong", "code": 500}), 500
 
@@ -524,7 +539,8 @@ def parent_remove_student(student_id):
 
         return jsonify({"status": "success", "message": "Student removed successfully", "code": 200}), 200
 
-    except SQLAlchemyError:
+    except SQLAlchemyError as e:
+        app.logger.error(f"SQLAlchemyError: {e}")
         session.rollback()
         return jsonify({"status": "error", "message": "Something went wrong", "code": 500}), 500
 
@@ -545,7 +561,8 @@ def student_remove_parent(parent_id):
 
         return jsonify({"status": "success", "message": "Parent removed successfully", "code": 200}), 200
 
-    except SQLAlchemyError:
+    except SQLAlchemyError as e:
+        app.logger.error(f"SQLAlchemyError: {e}")
         session.rollback()
         return jsonify({"status": "error", "message": "Something went wrong", "code": 500}), 500
 
@@ -596,6 +613,7 @@ def register_teacher():
         return jsonify({"status": "success", "message": "Teacher created", "code": 201}), 201
 
     except SQLAlchemyError as e:
+        app.logger.error(f"SQLAlchemyError: {e}")
         session.rollback()
         return jsonify({"status": "error", "message": "An error occurred while creating the teacher", "code": 500}), 500
 
@@ -618,6 +636,9 @@ def update_teacher():
         
         if not isinstance(current_user._get_current_object(), Teacher):
             return jsonify({"status": "error", "message": "User is not a teacher", "code": 403}), 403
+        
+        if name and len(name) > 60:
+            return jsonify({"status": "error", "message": "Name too long", "code": 400}), 400
 
         # Find the teacher
         teacher = session.query(Teacher).filter_by(id=current_user.id).first()
@@ -627,7 +648,7 @@ def update_teacher():
         # If an email was provided, validate it
         if email:
             if not is_valid_email(email):
-                return jsonify({"status": "error", "message": "Invalid email Format", "code": 400}), 400
+                return jsonify({"status": "error", "message": "Invalid email format", "code": 400}), 400
 
             if session.query(User).filter(User.email==email, User.id!=current_user.id).first():
                 return jsonify({"status": "error", "message": "A user with this email already exists", "code": 403}), 403
@@ -644,6 +665,7 @@ def update_teacher():
         return jsonify({"status": "success", "message": "Teacher updated", "code": 200}), 200
 
     except SQLAlchemyError as e:
+        app.logger.error(f"SQLAlchemyError: {e}")
         session.rollback()
         return jsonify({"status": "error", "message": "An error occurred while updating the teacher", "code": 500}), 500
 
@@ -663,7 +685,7 @@ def create_class():
 
         # Check if user is a teacher
         if not isinstance(current_user, Teacher):
-            return jsonify({"status": "error", "message": "User is not a teacher", "code": 404}), 403
+            return jsonify({"status": "error", "message": "User is not a teacher", "code": 403}), 403
 
         # Check if the teacher exists
         teacher = session.query(Teacher).filter_by(id=current_user.id).first()
@@ -679,7 +701,7 @@ def create_class():
         # Check if a class with this name already exists for this teacher
         existing_class = session.query(Class).filter_by(class_name=class_name, teacher_id=teacher.id).first()
         if existing_class:
-            return jsonify({"status": "error", "message": "A class with this name already exists for this teacher", "code": 400}), 400
+            return jsonify({"status": "error", "message": "A class with this name already exists for this teacher", "code": 409}), 409
 
         new_class = Class(teacher_id=teacher.id, class_name=class_name)
 
@@ -687,7 +709,8 @@ def create_class():
         session.commit()
         return jsonify({"status": "success", "message": "Class created", "code": 201}), 201
 
-    except SQLAlchemyError:
+    except SQLAlchemyError as e:
+        app.logger.error(f"SQLAlchemyError: {e}")
         session.rollback()
         return jsonify({"status": "error", "message": "An error occurred while creating the class", "code": 500}), 500
 
@@ -716,6 +739,7 @@ def delete_class(class_id):
         return jsonify({"status": "success", "message": "Class successfully deleted", "code": 200}), 200
     
     except SQLAlchemyError as e:
+        app.logger.error(f"SQLAlchemyError: {e}")
         session.rollback()
         return jsonify({"status": "error", "message": "An error occurred while deleting the class", "code": 500}), 500
     
@@ -763,6 +787,7 @@ def register_parent():
         return jsonify({"status": "success", "message": "Parent created", "code": 201}), 201
 
     except SQLAlchemyError as e:
+        app.logger.error(f"SQLAlchemyError: {e}")
         session.rollback()
         return jsonify({"status": "error", "message": "An error occurred while creating the parent", "code": 500}), 500
 
@@ -772,16 +797,19 @@ def register_parent():
 @app.route('/parents', methods=['PUT'])
 def update_parent():
     session = SessionLocal()
-    data = request.json
+    data = request.form
 
     name = data.get('name')
     email = data.get('email')
-    image = data.get('image')
+    image = request.files['image'] if 'image' in request.files else None
 
     try:
         # If no fields to update were provided
         if not name and not email and not image:
             return jsonify({"status": "error", "message": "No fields to update were provided", "code": 400}), 400
+
+        if name and len(name) > 60:
+            return jsonify({"status": "error", "message": "Name too long", "code": 400}), 400
         
         if not isinstance(current_user, Parent):
             return jsonify({"status": "error", "message": "User is not a parent", "code": 403}), 403
@@ -791,18 +819,27 @@ def update_parent():
         if not parent:
             return jsonify({"status": "error", "message": "Parent not found", "code": 404}), 404
 
-        # If an email was provided, validate it
-        if email and not is_valid_email(email):
-            return jsonify({"status": "error", "message": "Invalid email Format", "code": 400}), 400
+       # If an email was provided, validate it
+        if email:
+            if not is_valid_email(email):
+                return jsonify({"status": "error", "message": "Invalid email format", "code": 400}), 400
+
+            if session.query(User).filter(User.email==email, User.id!=current_user.id).first():
+                return jsonify({"status": "error", "message": "A user with this email already exists", "code": 403}), 403
         
-        if session.query(User).filter_by(email=email).first():
-            return jsonify({"status": "error", "message": "A user with this email already exists", "code": 403}), 403
+        # If an image was provided, validate it, save it and get its path
+        image_path = None
+        if image and allowed_file(image.filename):
+            filename = secure_filename(image.filename)
+            image_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+            image.save(image_path)
         
         # Update the parent's profile
-        parent.update_profile(session=session, name=name, email=email, image=image)
+        parent.update_profile(session=session, name=name, email=email, image=image_path)
         return jsonify({"status": "success", "message": "Parent updated", "code": 200}), 200
 
     except SQLAlchemyError as e:
+        app.logger.error(f"SQLAlchemyError: {e}")
         session.rollback()
         return jsonify({"status": "error", "message": "An error occurred while updating the parent", "code": 500}), 500
 
@@ -825,7 +862,8 @@ def get_children():
         children = [child.name for child in parent.children]
         return jsonify({"status": "success", "children": children, "code": 200}), 200
 
-    except SQLAlchemyError:
+    except SQLAlchemyError as e:
+        app.logger.error(f"SQLAlchemyError: {e}")
         return jsonify({"status": "error", "message": "An error occurred", "code": 500}), 500
 
     finally:
@@ -891,16 +929,19 @@ def register_student():
 @login_required
 def update_student():
     session = SessionLocal()
-    data = request.json
+    data = request.form
 
     name = data.get('name')
     email = data.get('email')
-    image = data.get('image')
+    image = request.files['image'] if 'image' in request.files else None
 
     try:
         # If no fields to update were provided
         if not name and not email and not image:
             return jsonify({"status": "error", "message": "No fields to update were provided", "code": 400}), 400
+        
+        if name and len(name) > 60:
+            return jsonify({"status": "error", "message": "Name too long", "code": 400}), 400
         
         if not isinstance(current_user, Student):
             return jsonify({"status": "error", "message": "User is not a student", "code": 403}), 403
@@ -911,19 +952,33 @@ def update_student():
             return jsonify({"status": "error", "message": "Student not found", "code": 404}), 404
 
         # If an email was provided, validate it
-        if email and not is_valid_email(email):
-            return jsonify({"status": "error", "message": "Invalid email Format", "code": 400}), 400
-        
-        if session.query(User).filter_by(email=email).first():
-            return jsonify({"status": "error", "message": "A user with this email already exists", "code": 403}), 403
+        if email:
+            if not is_valid_email(email):
+                return jsonify({"status": "error", "message": "Invalid email format", "code": 400}), 400
+
+            if session.query(User).filter(User.email==email, User.id!=current_user.id).first():
+                return jsonify({"status": "error", "message": "A user with this email already exists", "code": 403}), 403
+            
+        # If an image was provided, validate it, save it and get its path
+        image_path = None
+        if image and allowed_file(image.filename):
+            filename = secure_filename(image.filename)
+            image_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+            image.save(image_path)
         
         # Update the student's profile
-        student.update_profile(session=session, name=name, email=email, image=image)
+        student.update_profile(session=session, name=name, email=email, image=image_path)
         return jsonify({"status": "success", "message": "Student updated", "code": 200}), 200
 
     except SQLAlchemyError as e:
+        app.logger.error(f"SQLAlchemyError: {e}")
         session.rollback()
         return jsonify({"status": "error", "message": "An error occurred while updating the student", "code": 500}), 500
+    
+    except ValueError as e:
+        app.logger.error(f"ValueError: {e}")
+        session.rollback()
+        return jsonify({"status": "error", "message": "Cannot recognize a face from the image", "code": 422}), 422
 
     finally:
         session.close()
@@ -952,7 +1007,8 @@ def get_classes():
             classes = [{"id": _class.id, "name": _class.class_name} for _class in teacher.classes]
             return jsonify({"status": "success", "classes": classes, "code": 200}), 200
 
-    except SQLAlchemyError:
+    except SQLAlchemyError as e:
+        app.logger.error(f"SQLAlchemyError: {e}")
         return jsonify({"status": "error", "message": "An error occurred", "code": 500}), 500
 
     finally:
@@ -987,7 +1043,7 @@ def get_students(class_id):
         return jsonify({"status": "success", "students": students_json, "code": 200}), 200
     
     except SQLAlchemyError as e:
-        session.rollback()
+        app.logger.error(f"SQLAlchemyError: {e}")
         return jsonify({"status": "error", "message": "An error occurred while adding the student to the class", "code": 500}), 500
     
     finally:
@@ -997,8 +1053,6 @@ def get_students(class_id):
 @login_required
 def get_student_profile(class_id, student_id):
     # Get the current user from Flask-Login
-    current_user = current_user()
-
     session = SessionLocal()
 
     try:
@@ -1033,7 +1087,41 @@ def get_student_profile(class_id, student_id):
         return jsonify(response), 200
 
     except SQLAlchemyError as e:
-        session.rollback()
+        app.logger.error(f"SQLAlchemyError: {e}")
+        return jsonify({"status": "error", "message": "An error occurred", "code": 500}), 500
+
+    finally:
+        session.close()
+
+@app.route('/classes/<int:class_id>', methods=['GET'])
+@login_required
+def get_class_code(class_id):
+    session = SessionLocal()
+    try:
+        if isinstance(current_user, Parent):
+            return jsonify({"status": "error", "message": "Unauthorized: Forbidden", "code": 403}), 403
+        elif isinstance(current_user, Student):
+            if not session.query(student_class_association).filter_by(student_id=current_user.id, class_id=class_.id).first() is not None:
+                return jsonify({"status": "error", "message": "Unauthorized: Forbidden", "code": 403}), 403
+        elif isinstance(current_user, Teacher):
+            teacher_class = session.query(Class).filter_by(id=class_id, teacher_id=current_user.id).first()
+            if not teacher_class:
+                return jsonify({"status": "error", "message": "Unauthorized", "code": 403}), 403
+        
+        class_ = session.query(Class).filter_by(id=class_id).first()
+        if not class_:
+            return jsonify({"status": "error", "message": "Class not found", "code": 404}), 404
+
+        # Create the response
+        response = {
+            "status": "success",
+            "data": class_.class_code,
+            "code": 200
+        }
+        return jsonify(response), 200
+
+    except SQLAlchemyError as e:
+        app.logger.error(f"SQLAlchemyError: {e}")
         return jsonify({"status": "error", "message": "An error occurred", "code": 500}), 500
 
     finally:

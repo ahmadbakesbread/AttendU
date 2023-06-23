@@ -1,8 +1,8 @@
 import os, sys
 import unittest
 import json
-from config import TestConfig
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from config import TestConfig
 from app import app, SessionLocal, engine
 from Models import Teacher, Base, User, Student, Parent
 
@@ -23,6 +23,8 @@ class TestStudentRegistration(unittest.TestCase):
         # More delete queries for other types of objects...
         self.session.commit()  # Ensure session is committed
         self.session.close()
+        Base.metadata.drop_all(bind=engine)
+
 
     def test_name_missing(self):
         with open('./images/cristiano.jpg', 'rb') as img:

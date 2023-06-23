@@ -1,8 +1,8 @@
 import os, sys
 import unittest
 import json
-from config import TestConfig
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from config import TestConfig
 from app import app, SessionLocal, engine
 from Models import Teacher, Base, User, Student, Parent
 

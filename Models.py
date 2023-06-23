@@ -25,9 +25,9 @@ class ConnectionRequest(Base):
     __tablename__ = 'connection_requests'
     
     id = Column(Integer, primary_key=True)
-    sender_id = Column(Integer, ForeignKey('users.id'))
-    recipient_id = Column(Integer, ForeignKey('users.id'))
-    class_id = Column(Integer, ForeignKey('classes.id'))
+    sender_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'))
+    recipient_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'))
+    class_id = Column(Integer, ForeignKey('classes.id', ondelete='CASCADE'))
     status = Column(String(50), default='pending')
     type = Column(String(50), nullable=False)
 
@@ -46,8 +46,8 @@ class User(UserMixin, Base):
     email = Column(String(255), unique=True, index=True, nullable=False)
     image = Column(String(1000))
     password = Column(LargeBinary(60), nullable=False)
-    outgoing_requests = relationship('ConnectionRequest', back_populates='sender', foreign_keys='ConnectionRequest.sender_id')
-    incoming_requests = relationship('ConnectionRequest', back_populates='recipient', foreign_keys='ConnectionRequest.recipient_id')
+    outgoing_requests = relationship('ConnectionRequest', back_populates='sender', foreign_keys='ConnectionRequest.sender_id', cascade="all, delete-orphan")
+    incoming_requests = relationship('ConnectionRequest', back_populates='recipient', foreign_keys='ConnectionRequest.recipient_id', cascade="all, delete-orphan")
 
     __mapper_args__ = {
         'polymorphic_identity': 'user',
@@ -78,14 +78,14 @@ class Class(Base):
     __tablename__ = 'classes'
 
     id = Column(Integer, primary_key=True)
-    teacher_id = Column(Integer, ForeignKey('teachers.id'))
+    teacher_id = Column(Integer, ForeignKey('teachers.id', ondelete='CASCADE'))
     class_name = Column(String(150), nullable=False)
 
     teacher = relationship('Teacher', back_populates='classes')
     students = relationship('Student', secondary=student_class_association, back_populates='classes')
     attendances = relationship('Attendance', back_populates='_class')
     class_code = Column(String(50), nullable=False, unique=True)
-    requests = relationship('ConnectionRequest', back_populates='class_', foreign_keys='ConnectionRequest.class_id')
+    requests = relationship('ConnectionRequest', back_populates='class_', foreign_keys='ConnectionRequest.class_id', cascade="all, delete-orphan")
 
     def __init__(self, *args, **kwargs):
         super(Class, self).__init__(*args, **kwargs)
@@ -144,7 +144,7 @@ class Teacher(User):
     __tablename__ = "teachers"
 
     id = Column(Integer, ForeignKey('users.id'), primary_key=True)
-    classes = relationship('Class', back_populates='teacher', cascade="all, delete-orphan")
+    classes = relationship('Class', back_populates='teacher', passive_deletes=True)
 
     __mapper_args__ = {
         'polymorphic_identity':'teacher',

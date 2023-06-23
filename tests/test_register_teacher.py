@@ -1,8 +1,8 @@
 import os, sys
 import unittest
 import json
-from config import TestConfig
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from config import TestConfig
 from app import app, SessionLocal, engine
 from Models import Teacher, Base, User, Student, Parent
 
@@ -12,7 +12,7 @@ class TestTeacherRegistration(unittest.TestCase):
         app.config.from_object(TestConfig)  # Use test configuration
         self.client = app.test_client()
         Base.metadata.create_all(bind=engine)  # Create all tables
-        self.session = SessionLocal()  # Now this should connect to your SQLite database
+        self.session = SessionLocal()
 
     def tearDown(self):
         # Delete all types of objects that were created in the tests.
@@ -23,6 +23,7 @@ class TestTeacherRegistration(unittest.TestCase):
         # More delete queries for other types of objects...
         self.session.commit()  # Ensure session is committed
         self.session.close()
+        Base.metadata.drop_all(bind=engine)
 
     def test_name_missing(self):
         response = self.client.post('/teachers', data={"email": "teacher@gmail.com", "password": "password"}, content_type='multipart/form-data')
