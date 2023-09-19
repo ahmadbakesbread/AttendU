@@ -1,7 +1,7 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, g
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import sessionmaker, scoped_session
 from sqlalchemy.exc import SQLAlchemyError
 from werkzeug.utils import secure_filename
 from Models import Base, Teacher, Class, User, Student, Parent, ConnectionRequest, student_class_association, parent_student_association
@@ -14,10 +14,7 @@ app = Flask(__name__)
 login_manager = LoginManager()
 login_manager.init_app(app)
 
-if os.environ.get('FLASK_ENV') == 'testing':
-    app.config.from_object('config.TestConfig')
-else:
-    app.config.from_object('config.ProductionConfig')
+app.config.from_object('config.ProductionConfig')
 
 # specify the path where you want to save your images
 UPLOAD_FOLDER = './images'
@@ -29,10 +26,19 @@ app.config['MAX_CONTENT_LENGTH'] = 2 * 1024 * 1024  # 2 MB
 engine = create_engine(app.config['SQLALCHEMY_DATABASE_URI'])
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
+@app.before_request
+def create_session():
+    g.session = SessionLocal()
+
+@app.teardown_appcontext
+def close_session(exception=None):
+    session = g.pop('session', None)
+    if session is not None:
+        session.close()
+
 @login_manager.user_loader
 def load_user(user_id):
-    session = SessionLocal()
-    return session.get(User, user_id)
+    return g.session.get(User, user_id)
 
 ##### User Endpoints #####
 
@@ -42,9 +48,7 @@ def login():
     email = data.get('email')
     password = data.get('password')
 
-    session = SessionLocal()
-    user = session.query(User).filter_by(email=email).first()
-    session.close()
+    user = g.session.query(User).filter_by(email=email).first()
 
     if not is_valid_email(email):
         return jsonify({"status": "error", "message": "Invalid email format", "code": 400}), 400 
@@ -69,15 +73,14 @@ def logout():
 @app.route('/users', methods=['DELETE'])
 @login_required
 def delete_user():
-    session = SessionLocal()
     try:
-        user = session.query(User).filter_by(id=current_user.id).first()
+        user = g.session.query(User).filter_by(id=current_user.id).first()
         
         if not user:
             return jsonify({"status": "error", "message": "User not found", "code": 404}), 404
         
-        session.delete(user)
-        session.commit()
+        g.session.delete(user)
+        g.session.commit()
 
         logout_user()
 
@@ -85,11 +88,8 @@ def delete_user():
     
     except SQLAlchemyError as e:
         app.logger.error(f"SQLAlchemyError: {e}")
-        session.rollback()
+        g.session.rollback()
         return jsonify({"status": "error", "message": "An error occurred while deleting the user", "code": 500}), 500
-    
-    finally:
-        session.close()
 
 @app.route('/upload', methods=['POST'])
 def upload_file():
@@ -118,14 +118,11 @@ def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 
-##### CONNECTIONS #####
-
 @app.route('/teacher/classes/<int:class_id>/send', methods=['POST'])
 @login_required
 def teacher_send_request_to_student(class_id):
     recipient_email = request.json.get('email')
 
-    session = SessionLocal()
     try:
         if not isinstance(current_user, Teacher):
             return jsonify({"status": "error", "message": "Not authorized", "code": 403}), 403
@@ -133,39 +130,39 @@ def teacher_send_request_to_student(class_id):
             return jsonify({"status": "error", "message": "No student email provided", "code": 400}), 400
         if not is_valid_email(recipient_email):
             return jsonify({"status": "error", "message": "Invalid email format", "code": 400}), 400
-        recipient = session.query(Student).filter_by(email=recipient_email).first()
+
+        recipient = g.session.query(Student).filter_by(email=recipient_email).first()
         if not recipient:
             return jsonify({"status": "error", "message": "Student not found", "code": 404}), 404
-        class_ = session.query(Class).filter_by(id=class_id, teacher_id=current_user.id).first()
+        
+        class_ = g.session.query(Class).filter_by(id=class_id, teacher_id=current_user.id).first()
         if not class_:
             return jsonify({"status": "error", "message": "Class not found or not belonging to the current user", "code": 404}), 404
-        if session.query(student_class_association).filter_by(student_id=recipient.id, class_id=class_.id).first() is not None:
+
+        if g.session.query(student_class_association).filter_by(student_id=recipient.id, class_id=class_.id).first() is not None:
             return jsonify({"status": "error", "message": "The student is already a member of this class", "code": 400}), 400
 
         # Check if there is any existing request that is the exact same.
-        existing_request = session.query(ConnectionRequest).filter_by(sender_id=current_user.id, recipient_id=recipient.id, class_id=class_id).first()
+        existing_request = g.session.query(ConnectionRequest).filter_by(sender_id=current_user.id, recipient_id=recipient.id, class_id=class_id).first()
         if existing_request and existing_request.status == 'pending':
             return jsonify({"status": "error", "message": "Request is already pending", "code": 400}), 400
         
-        student_existing_request = session.query(ConnectionRequest).filter_by(sender_id=recipient.id, recipient_id=current_user.id, class_id=class_id).first()
+        student_existing_request = g.session.query(ConnectionRequest).filter_by(sender_id=recipient.id, recipient_id=current_user.id, class_id=class_id).first()
         if student_existing_request and student_existing_request.status == 'pending':
             class_.students.append(recipient)
             student_existing_request.status = 'accepted'
             return jsonify({"status": "success", "message": "Request accepted", "code": 200}), 200
 
         new_request = ConnectionRequest(sender_id=current_user.id, recipient_id=recipient.id, class_id=class_id, type='class_invitation')
-        session.add(new_request)
-        session.commit()
+        g.session.add(new_request)
+        g.session.commit()
 
         return jsonify({"status": "success", "message": "Invite sent successfully", "code": 200}), 200
 
     except SQLAlchemyError as e:
         app.logger.error(f"SQLAlchemyError: {e}")
-        session.rollback()
+        g.session.rollback()
         return jsonify({"status": "error", "message": "Something went wrong", "code": 500}), 500
-
-    finally:
-        session.close()
 
 
 @app.route('/students/requests/<int:request_id>/respond', methods=['POST'])
@@ -173,14 +170,13 @@ def teacher_send_request_to_student(class_id):
 def student_respond_to_teacher_request(request_id):
     response = request.json.get('response')
 
-    session = SessionLocal()
     try:
         if not response:
             return jsonify({"status": "error", "message": "No response provided", "code": 400}), 400
         if not isinstance(current_user, Student):
             return jsonify({"status": "error", "message": "Forbidden: Unauthorized", "code": 403}), 403 
 
-        connection_request = session.query(ConnectionRequest).filter_by(id=request_id, recipient_id=current_user.id).first()
+        connection_request = g.session.query(ConnectionRequest).filter_by(id=request_id, recipient_id=current_user.id).first()
         if not connection_request:
             return jsonify({"status": "error", "message": "Request not found", "code": 404}), 404
         
@@ -191,18 +187,18 @@ def student_respond_to_teacher_request(request_id):
             return jsonify({"status": "error", "message": "Request already processed.", "code": 404}), 404
 
         if response == 'accept':
-            class_ = session.query(Class).filter_by(id=connection_request.class_id).first()
+            class_ = g.session.query(Class).filter_by(id=connection_request.class_id).first()
             if not class_:
                 return jsonify({"status": "error", "message": "Class not found", "code": 404}), 404
 
             class_.students.append(current_user._get_current_object())
             connection_request.status = 'accepted'
-            session.commit()
+            g.session.commit()
             return jsonify({"status": "success", "message": "Request accepted", "code": 200}), 200
 
         elif response == 'reject':
             connection_request.status = 'rejected'
-            session.commit()
+            g.session.commit()
             return jsonify({"status": "success", "message": "Request rejected", "code": 200}), 200
 
         else:
@@ -210,67 +206,57 @@ def student_respond_to_teacher_request(request_id):
 
     except SQLAlchemyError as e:
         app.logger.error(f"SQLAlchemyError: {e}")
-        session.rollback()
+        g.session.rollback()
         return jsonify({"status": "error", "message": "Something went wrong", "code": 500}), 500
-
-    finally:
-        session.close()
-
 
 @app.route('/students/classes/join', methods=['POST'])
 @login_required
 def student_join_class():
     class_code = request.json.get('code')
 
-    session = SessionLocal()
     try:
         if not class_code:
             return jsonify({"status": "error", "message": "No class code provided", "code": 400}), 400
         if not isinstance(current_user, Student):
             return jsonify({"status": "error", "message": "Not authorized", "code": 403}), 403
-        class_ = session.query(Class).filter_by(class_code=class_code).first()
+        class_ = g.session.query(Class).filter_by(class_code=class_code).first()
         if not class_:
             return jsonify({"status": "error", "message": "Class not found", "code": 404}), 404
-        if session.query(student_class_association).filter_by(student_id=current_user.id, class_id=class_.id).first() is not None:
+        if g.session.query(student_class_association).filter_by(student_id=current_user.id, class_id=class_.id).first() is not None:
             return jsonify({"status": "error", "message": "You're already a member of this class", "code": 400}), 400
 
-        existing_request = session.query(ConnectionRequest).filter_by(sender_id=current_user.id, class_id=class_.id).first()
+        existing_request = g.session.query(ConnectionRequest).filter_by(sender_id=current_user.id, class_id=class_.id).first()
         if existing_request and existing_request.status == 'pending':
             return jsonify({"status": "error", "message": "Request is already pending", "code": 400}), 400
         
-        teacher_existing_request = session.query(ConnectionRequest).filter_by(sender_id=class_.teacher_id, recipient_id=current_user.id, class_id=class_.id).first()
+        teacher_existing_request = g.session.query(ConnectionRequest).filter_by(sender_id=class_.teacher_id, recipient_id=current_user.id, class_id=class_.id).first()
         if teacher_existing_request and teacher_existing_request.status == 'pending':
             class_.students.append(current_user._get_current_object())
             teacher_existing_request.status = 'accepted'
             return jsonify({"status": "success", "message": "Request accepted", "code": 200}), 200
 
         new_request = ConnectionRequest(sender_id=current_user.id, recipient_id=class_.teacher_id, class_id=class_.id, type='join_request')
-        session.add(new_request)
-        session.commit()
+        g.session.add(new_request)
+        g.session.commit()
 
         return jsonify({"status": "success", "message": "Join request sent successfully", "code": 200}), 200
 
     except SQLAlchemyError as e:
         app.logger.error(f"SQLAlchemyError: {e}")
-        session.rollback()
+        g.session.rollback()
         return jsonify({"status": "error", "message": "Something went wrong", "code": 500}), 500
-
-    finally:
-        session.close()
-
 
 @app.route('/teachers/requests/<int:request_id>/respond', methods=['POST'])
 @login_required
 def teacher_respond_to_student_request(request_id):
     response = request.json.get('response')
 
-    session = SessionLocal()
     try:
         if not response:
             return jsonify({"status": "error", "message": "No response provided", "code": 400}), 400 
         if not isinstance(current_user, Teacher):
             return jsonify({"status": "error", "message": "Forbidden: Unauthorized", "code": 403}), 403 
-        connection_request = session.query(ConnectionRequest).filter_by(id=request_id, recipient_id=current_user.id).first()
+        connection_request = g.session.query(ConnectionRequest).filter_by(id=request_id, recipient_id=current_user.id).first()
         if not connection_request:
             return jsonify({"status": "error", "message": "Request not found", "code": 404}), 404
         
@@ -281,22 +267,22 @@ def teacher_respond_to_student_request(request_id):
             return jsonify({"status": "error", "message": "Request already processed.", "code": 404}), 404
 
         if response == 'accept':
-            class_ = session.query(Class).filter_by(id=connection_request.class_id, teacher_id=current_user.id).first()
+            class_ = g.session.query(Class).filter_by(id=connection_request.class_id, teacher_id=current_user.id).first()
             if not class_:
                 return jsonify({"status": "error", "message": "Class not found or not belonging to the current user", "code": 404}), 404
 
-            student = session.query(Student).filter_by(id=connection_request.sender_id).first()
+            student = g.session.query(Student).filter_by(id=connection_request.sender_id).first()
             if not student:
                 return jsonify({"status": "error", "message": "Student not found", "code": 404}), 404
 
             class_.students.append(student)
             connection_request.status = 'accepted'
-            session.commit()
+            g.session.commit()
             return jsonify({"status": "success", "message": "Request accepted", "code": 200}), 200
 
         elif response == 'reject':
             connection_request.status = 'rejected'
-            session.commit()
+            g.session.commit()
             return jsonify({"status": "success", "message": "Request rejected", "code": 200}), 200
 
         else:
@@ -304,18 +290,15 @@ def teacher_respond_to_student_request(request_id):
 
     except SQLAlchemyError as e:
         app.logger.error(f"SQLAlchemyError: {e}")
-        session.rollback()
+        g.session.rollback()
         return jsonify({"status": "error", "message": "Something went wrong", "code": 500}), 500
 
-    finally:
-        session.close()
 
 @app.route('/parents/students/send', methods=['POST'])
 @login_required
 def parent_send_child_request():
     recipient_email = request.json.get('email')
 
-    session = SessionLocal()
     try:
         if not isinstance(current_user, Parent):
             return jsonify({"status": "error", "message": "Not authorized", "code": 403}), 403
@@ -323,30 +306,27 @@ def parent_send_child_request():
             return jsonify({"status": "error", "message": "No student email provided", "code": 400}), 400
         if not is_valid_email(recipient_email):
             return jsonify({"status": "error", "message": "Invalid email format", "code": 400}), 400 
-        recipient = session.query(Student).filter_by(email=recipient_email).first()
+        recipient = g.session.query(Student).filter_by(email=recipient_email).first()
         if not recipient:
             return jsonify({"status": "error", "message": "Student not found", "code": 404}), 404
-        if session.query(parent_student_association).filter_by(parent_id=current_user.id, student_id=recipient.id).first() is not None:
+        if g.session.query(parent_student_association).filter_by(parent_id=current_user.id, student_id=recipient.id).first() is not None:
             return jsonify({"status": "error", "message": "The student is already listed as a child", "code": 400}), 400
 
         # Check if there is any existing request that is the exact same.
-        existing_request = session.query(ConnectionRequest).filter_by(sender_id=current_user.id, recipient_id=recipient.id).first()
+        existing_request = g.session.query(ConnectionRequest).filter_by(sender_id=current_user.id, recipient_id=recipient.id).first()
         if existing_request and existing_request.status == 'pending':
             return jsonify({"status": "error", "message": "Request is already pending", "code": 400}), 400
 
         new_request = ConnectionRequest(sender_id=current_user.id, recipient_id=recipient.id, type='parent_to_child')
-        session.add(new_request)
-        session.commit()
+        g.session.add(new_request)
+        g.session.commit()
 
         return jsonify({"status": "success", "message": "Request sent successfully", "code": 200}), 200
 
     except SQLAlchemyError as e:
         app.logger.error(f"SQLAlchemyError: {e}")
-        session.rollback()
+        g.session.rollback()
         return jsonify({"status": "error", "message": "Something went wrong", "code": 500}), 500
-
-    finally:
-        session.close()
 
 
 @app.route('/students/parents/send', methods=['POST'])
@@ -354,7 +334,6 @@ def parent_send_child_request():
 def student_send_parent_request():
     recipient_email = request.json.get('email')
 
-    session = SessionLocal()
     try:
         if not isinstance(current_user, Student):
             return jsonify({"status": "error", "message": "Not authorized", "code": 403}), 403
@@ -362,30 +341,27 @@ def student_send_parent_request():
             return jsonify({"status": "error", "message": "No parent email provided", "code": 400}), 400
         if not is_valid_email(recipient_email):
             return jsonify({"status": "error", "message": "Invalid email format", "code": 400}), 400 
-        recipient = session.query(Parent).filter_by(email=recipient_email).first()
+        recipient = g.session.query(Parent).filter_by(email=recipient_email).first()
         if not recipient:
             return jsonify({"status": "error", "message": "Parent not found", "code": 404}), 404
-        if session.query(parent_student_association).filter_by(parent_id=current_user.id, student_id=recipient.id).first() is not None:
+        if g.session.query(parent_student_association).filter_by(parent_id=current_user.id, student_id=recipient.id).first() is not None:
             return jsonify({"status": "error", "message": "The user is already listed as a parent", "code": 400}), 400
 
         # Check if there is any existing request that is the exact same.
-        existing_request = session.query(ConnectionRequest).filter_by(sender_id=current_user.id, recipient_id=recipient.id).first()
+        existing_request = g.session.query(ConnectionRequest).filter_by(sender_id=current_user.id, recipient_id=recipient.id).first()
         if existing_request and existing_request.status == 'pending':
             return jsonify({"status": "error", "message": "Request is already pending", "code": 400}), 400
 
         new_request = ConnectionRequest(sender_id=current_user.id, recipient_id=recipient.id, type='child_to_parent')
-        session.add(new_request)
-        session.commit()
+        g.session.add(new_request)
+        g.session.commit()
 
         return jsonify({"status": "success", "message": "Request sent successfully", "code": 200}), 200
 
     except SQLAlchemyError as e:
         app.logger.error(f"SQLAlchemyError: {e}")
-        session.rollback()
+        g.session.rollback()
         return jsonify({"status": "error", "message": "Something went wrong", "code": 500}), 500
-
-    finally:
-        session.close()
 
 
 @app.route('/students/requests/<int:request_id>/respond', methods=['POST'])
@@ -393,13 +369,12 @@ def student_send_parent_request():
 def student_respond_to_parent_request(request_id):
     response = request.json.get('response')
 
-    session = SessionLocal()
     try:
         if not isinstance(current_user, Student):
             return jsonify({"status": "error", "message": "Forbidden: Unauthorized", "code": 403}), 403 
         if not response:
             return jsonify({"status": "error", "message": "No response provided", "code": 400}), 400 
-        connection_request = session.query(ConnectionRequest).filter_by(id=request_id, recipient_id=current_user.id).first()
+        connection_request = g.session.query(ConnectionRequest).filter_by(id=request_id, recipient_id=current_user.id).first()
         if not connection_request:
             return jsonify({"status": "error", "message": "Request not found", "code": 404}), 404
         if connection_request.type != 'parent_to_child':
@@ -407,18 +382,18 @@ def student_respond_to_parent_request(request_id):
         if connection_request.status != "pending":
             return jsonify({"status": "error", "message": "Request already processed.", "code": 404}), 404
         if response == 'accept':
-            parent = session.query(Parent).filter_by(id=connection_request.sender_id).first()
+            parent = g.session.query(Parent).filter_by(id=connection_request.sender_id).first()
             if not parent:
                 return jsonify({"status": "error", "message": "Parent not found", "code": 404}), 404
 
             current_user._get_current_object().parents.append(parent)
             connection_request.status = 'accepted'
-            session.commit()
+            g.session.commit()
             return jsonify({"status": "success", "message": "Request accepted", "code": 200}), 200
 
         elif response == 'reject':
             connection_request.status = 'rejected'
-            session.commit()
+            g.session.commit()
             return jsonify({"status": "success", "message": "Request rejected", "code": 200}), 200
 
         else:
@@ -426,24 +401,21 @@ def student_respond_to_parent_request(request_id):
 
     except SQLAlchemyError as e:
         app.logger.error(f"SQLAlchemyError: {e}")
-        session.rollback()
+        g.session.rollback()
         return jsonify({"status": "error", "message": "Something went wrong", "code": 500}), 500
 
-    finally:
-        session.close()
 
 @app.route('/parents/requests/<int:request_id>/respond', methods=['POST'])
 @login_required
 def parent_respond_to_student_request(request_id):
     response = request.json.get('response')
 
-    session = SessionLocal()
     try:
         if not isinstance(current_user, Parent):
             return jsonify({"status": "error", "message": "Forbidden: Unauthorized", "code": 403}), 403 
         if not response:
             return jsonify({"status": "error", "message": "No response provided", "code": 400}), 400 
-        connection_request = session.query(ConnectionRequest).filter_by(id=request_id, recipient_id=current_user.id).first()
+        connection_request = g.session.query(ConnectionRequest).filter_by(id=request_id, recipient_id=current_user.id).first()
         if not connection_request:
             return jsonify({"status": "error", "message": "Request not found", "code": 404}), 404
         if connection_request.type != 'child_to_parent':
@@ -451,18 +423,18 @@ def parent_respond_to_student_request(request_id):
         if connection_request.status != "pending":
             return jsonify({"status": "error", "message": "Request already processed.", "code": 404}), 404
         if response == 'accept':
-            parent = session.query(Parent).filter_by(id=connection_request.sender_id).first()
+            parent = g.session.query(Parent).filter_by(id=connection_request.sender_id).first()
             if not parent:
                 return jsonify({"status": "error", "message": "Parent not found", "code": 404}), 404
 
             current_user._get_current_object().parents.append(parent)
             connection_request.status = 'accepted'
-            session.commit()
+            g.session.commit()
             return jsonify({"status": "success", "message": "Request accepted", "code": 200}), 200
 
         elif response == 'reject':
             connection_request.status = 'rejected'
-            session.commit()
+            g.session.commit()
             return jsonify({"status": "success", "message": "Request rejected", "code": 200}), 200
 
         else:
@@ -470,110 +442,90 @@ def parent_respond_to_student_request(request_id):
 
     except SQLAlchemyError as e:
         app.logger.error(f"SQLAlchemyError: {e}")
-        session.rollback()
+        g.session.rollback()
         return jsonify({"status": "error", "message": "Something went wrong", "code": 500}), 500
 
-    finally:
-        session.close()
 
 @app.route('/students/classes/<int:class_id>/leave', methods=['POST'])
 @login_required
 def student_leave_class(class_id):
-    session = SessionLocal()
     try:
-        class_ = session.query(Class).filter_by(id=class_id).first()
+        class_ = g.session.query(Class).filter_by(id=class_id).first()
         if not class_ or current_user._get_current_object() not in class_.students:
             return jsonify({"status": "error", "message": "Class not found or student not enrolled", "code": 404}), 404
 
         class_.students.remove(current_user._get_current_object())
-        session.commit()
+        g.session.commit()
 
         return jsonify({"status": "success", "message": "Class left successfully", "code": 200}), 200
 
     except SQLAlchemyError as e:
         app.logger.error(f"SQLAlchemyError: {e}")
-        session.rollback()
+        g.session.rollback()
         return jsonify({"status": "error", "message": "Something went wrong", "code": 500}), 500
-
-    finally:
-        session.close()
 
 @app.route('/teachers/classes/<int:class_id>/remove/<int:student_id>', methods=['POST'])
 @login_required
 def teacher_remove_student_from_class(class_id, student_id):
-    session = SessionLocal()
     try:
-        class_ = session.query(Class).filter_by(id=class_id, teacher_id=current_user.id).first()
+        class_ = g.session.query(Class).filter_by(id=class_id, teacher_id=current_user.id).first()
         if not class_:
             return jsonify({"status": "error", "message": "Class not found or not belonging to the current user", "code": 404}), 404
 
-        student = session.query(Student).filter_by(id=student_id).first()
+        student = g.session.query(Student).filter_by(id=student_id).first()
         if not student or student not in class_.students:
             return jsonify({"status": "error", "message": "Student not found or not enrolled in the class", "code": 404}), 404
 
         class_.students.remove(student)
-        session.commit()
+        g.session.commit()
 
         return jsonify({"status": "success", "message": "Student removed successfully", "code": 200}), 200
 
     except SQLAlchemyError as e:
         app.logger.error(f"SQLAlchemyError: {e}")
-        session.rollback()
+        g.session.rollback()
         return jsonify({"status": "error", "message": "Something went wrong", "code": 500}), 500
-
-    finally:
-        session.close()
-
 
 @app.route('/parents/students/<int:student_id>/remove', methods=['POST'])
 @login_required
 def parent_remove_student(student_id):
-    session = SessionLocal()
     try:
-        student = session.query(Student).filter_by(id=student_id).first()
+        student = g.session.query(Student).filter_by(id=student_id).first()
         if not student or student not in current_user._get_current_object().children:
             return jsonify({"status": "error", "message": "Student not found or not connected to the current user", "code": 404}), 404
 
         current_user._get_current_object().children.remove(student)
-        session.commit()
+        g.session.commit()
 
         return jsonify({"status": "success", "message": "Student removed successfully", "code": 200}), 200
 
     except SQLAlchemyError as e:
         app.logger.error(f"SQLAlchemyError: {e}")
-        session.rollback()
+        g.session.rollback()
         return jsonify({"status": "error", "message": "Something went wrong", "code": 500}), 500
-
-    finally:
-        session.close()
 
 @app.route('/students/parents/<int:parent_id>/remove', methods=['POST'])
 @login_required
 def student_remove_parent(parent_id):
-    session = SessionLocal()
     try:
-        parent = session.query(Parent).filter_by(id=parent_id).first()
+        parent = g.session.query(Parent).filter_by(id=parent_id).first()
         if not parent or current_user._get_current_object() not in parent.children:
             return jsonify({"status": "error", "message": "Parent not found or not connected to the student", "code": 404}), 404
 
         parent.children.remove(current_user._get_current_object())
-        session.commit()
+        g.session.commit()
 
         return jsonify({"status": "success", "message": "Parent removed successfully", "code": 200}), 200
 
     except SQLAlchemyError as e:
         app.logger.error(f"SQLAlchemyError: {e}")
-        session.rollback()
+        g.session.rollback()
         return jsonify({"status": "error", "message": "Something went wrong", "code": 500}), 500
-
-    finally:
-        session.close()
 
 ##### Teacher Endpoints #####
 
 @app.route('/teachers', methods=['POST'])
 def register_teacher():
-    session = SessionLocal()
     data = request.form
 
     name = data.get('name')
@@ -595,7 +547,7 @@ def register_teacher():
             return jsonify({"status": "error", "message": "Invalid email format", "code": 400}), 400
 
         # Check if a teacher with this email already exists
-        existing_user = session.query(User).filter_by(email=email).first()
+        existing_user = g.session.query(User).filter_by(email=email).first()
         
         if existing_user:
             return jsonify({"status": "error", "message": "A user with this email already exists", "code": 409}), 409
@@ -608,22 +560,19 @@ def register_teacher():
         # Hash password before saving        
         new_teacher = Teacher(name=name, email=email, password=password, image=image_path)
 
-        session.add(new_teacher)
-        session.commit()
+        g.session.add(new_teacher)
+        g.session.commit()
         return jsonify({"status": "success", "message": "Teacher created", "code": 201}), 201
 
     except SQLAlchemyError as e:
         app.logger.error(f"SQLAlchemyError: {e}")
-        session.rollback()
+        g.session.rollback()
         return jsonify({"status": "error", "message": "An error occurred while creating the teacher", "code": 500}), 500
 
-    finally:
-        session.close()
 
 @app.route('/teachers', methods=['PUT'])
 @login_required
 def update_teacher():
-    session = SessionLocal()
     data = request.form  # changed from request.json
     image = request.files['image'] if 'image' in request.files else None
     name = data.get('name')
@@ -641,7 +590,7 @@ def update_teacher():
             return jsonify({"status": "error", "message": "Name too long", "code": 400}), 400
 
         # Find the teacher
-        teacher = session.query(Teacher).filter_by(id=current_user.id).first()
+        teacher = g.session.query(Teacher).filter_by(id=current_user.id).first()
         if not teacher:
             return jsonify({"status": "error", "message": "Teacher not found", "code": 404}), 404
 
@@ -650,7 +599,7 @@ def update_teacher():
             if not is_valid_email(email):
                 return jsonify({"status": "error", "message": "Invalid email format", "code": 400}), 400
 
-            if session.query(User).filter(User.email==email, User.id!=current_user.id).first():
+            if g.session.query(User).filter(User.email==email, User.id!=current_user.id).first():
                 return jsonify({"status": "error", "message": "A user with this email already exists", "code": 403}), 403
         
         # If an image was provided, validate it, save it and get its path
@@ -661,23 +610,19 @@ def update_teacher():
             image.save(image_path)
 
         # Update the teacher's profile
-        teacher.update_profile(session=session, name=name, email=email, image=image_path)
+        teacher.update_profile(session=g.session, name=name, email=email, image=image_path)
         return jsonify({"status": "success", "message": "Teacher updated", "code": 200}), 200
 
     except SQLAlchemyError as e:
         app.logger.error(f"SQLAlchemyError: {e}")
-        session.rollback()
+        g.session.rollback()
         return jsonify({"status": "error", "message": "An error occurred while updating the teacher", "code": 500}), 500
-
-    finally:
-        session.close()
 
 
 ### Class/Teacher Endpoints ###
 @app.route('/classes', methods=['POST'])
 @login_required
 def create_class():
-    session = SessionLocal()
 
     try:
         data = request.json
@@ -688,7 +633,7 @@ def create_class():
             return jsonify({"status": "error", "message": "User is not a teacher", "code": 403}), 403
 
         # Check if the teacher exists
-        teacher = session.query(Teacher).filter_by(id=current_user.id).first()
+        teacher = g.session.query(Teacher).filter_by(id=current_user.id).first()
         if not teacher:
             return jsonify({"status": "error", "message": "Teacher not found", "code": 404}), 404
         
@@ -699,31 +644,28 @@ def create_class():
             return jsonify({"status": "error", "message": "Class name too long", "code": 400}), 400
 
         # Check if a class with this name already exists for this teacher
-        existing_class = session.query(Class).filter_by(class_name=class_name, teacher_id=teacher.id).first()
+        existing_class = g.session.query(Class).filter_by(class_name=class_name, teacher_id=teacher.id).first()
         if existing_class:
             return jsonify({"status": "error", "message": "A class with this name already exists for this teacher", "code": 409}), 409
 
         new_class = Class(teacher_id=teacher.id, class_name=class_name)
 
-        session.add(new_class)
-        session.commit()
+        g.session.add(new_class)
+        g.session.commit()
         return jsonify({"status": "success", "message": "Class created", "code": 201}), 201
 
     except SQLAlchemyError as e:
         app.logger.error(f"SQLAlchemyError: {e}")
-        session.rollback()
+        g.session.rollback()
         return jsonify({"status": "error", "message": "An error occurred while creating the class", "code": 500}), 500
 
-    finally:
-        session.close()
 
 @app.route('/classes/<int:class_id>', methods=['DELETE'])
 @login_required
 def delete_class(class_id):
-    session = SessionLocal()
     try:
         # Find the class with the given id
-        class_ = session.query(Class).filter_by(id=class_id).first()
+        class_ = g.session.query(Class).filter_by(id=class_id).first()
 
         # If the class doesn't exist
         if not class_:
@@ -734,23 +676,20 @@ def delete_class(class_id):
             return jsonify({"status": "error", "message": "You are not the teacher of this class", "code": 403}), 403
 
         # Delete the class
-        session.delete(class_)
-        session.commit()
+        g.session.delete(class_)
+        g.session.commit()
         return jsonify({"status": "success", "message": "Class successfully deleted", "code": 200}), 200
     
     except SQLAlchemyError as e:
         app.logger.error(f"SQLAlchemyError: {e}")
-        session.rollback()
+        g.session.rollback()
         return jsonify({"status": "error", "message": "An error occurred while deleting the class", "code": 500}), 500
-    
-    finally:
-        session.close()
+
 
 ### Parent Endpoints ###
 
 @app.route('/parents', methods=['POST'])
 def register_parent():
-    session = SessionLocal()
     data = request.form
 
     name = data.get('name')
@@ -770,7 +709,7 @@ def register_parent():
             return jsonify({"status": "error", "message": "Invalid email format", "code": 400}), 400
 
         # Check if a parent with this email already exists
-        existing_user = session.query(User).filter_by(email=email).first()
+        existing_user = g.session.query(User).filter_by(email=email).first()
         
         if existing_user:
             return jsonify({"status": "error", "message": "A user with this email already exists", "code": 409}), 409
@@ -782,21 +721,18 @@ def register_parent():
 
         new_parent = Parent(name=name, email=email, password=password, image=image_path)
 
-        session.add(new_parent)
-        session.commit()
+        g.session.add(new_parent)
+        g.session.commit()
         return jsonify({"status": "success", "message": "Parent created", "code": 201}), 201
 
     except SQLAlchemyError as e:
         app.logger.error(f"SQLAlchemyError: {e}")
-        session.rollback()
+        g.session.rollback()
         return jsonify({"status": "error", "message": "An error occurred while creating the parent", "code": 500}), 500
 
-    finally:
-        session.close()
 
 @app.route('/parents', methods=['PUT'])
 def update_parent():
-    session = SessionLocal()
     data = request.form
 
     name = data.get('name')
@@ -815,7 +751,7 @@ def update_parent():
             return jsonify({"status": "error", "message": "User is not a parent", "code": 403}), 403
 
         # Find the Parent
-        parent = session.query(Parent).filter_by(id=current_user.id).first()
+        parent = g.session.query(Parent).filter_by(id=current_user.id).first()
         if not parent:
             return jsonify({"status": "error", "message": "Parent not found", "code": 404}), 404
 
@@ -824,7 +760,7 @@ def update_parent():
             if not is_valid_email(email):
                 return jsonify({"status": "error", "message": "Invalid email format", "code": 400}), 400
 
-            if session.query(User).filter(User.email==email, User.id!=current_user.id).first():
+            if g.session.query(User).filter(User.email==email, User.id!=current_user.id).first():
                 return jsonify({"status": "error", "message": "A user with this email already exists", "code": 403}), 403
         
         # If an image was provided, validate it, save it and get its path
@@ -835,26 +771,23 @@ def update_parent():
             image.save(image_path)
         
         # Update the parent's profile
-        parent.update_profile(session=session, name=name, email=email, image=image_path)
+        parent.update_profile(session=g.session, name=name, email=email, image=image_path)
         return jsonify({"status": "success", "message": "Parent updated", "code": 200}), 200
 
     except SQLAlchemyError as e:
         app.logger.error(f"SQLAlchemyError: {e}")
-        session.rollback()
+        g.session.rollback()
         return jsonify({"status": "error", "message": "An error occurred while updating the parent", "code": 500}), 500
 
-    finally:
-        session.close()
 
 @app.route('/children', methods=['GET'])
 @login_required
 def get_children():
-    if isinstance(current_user, Parent):
+    if not isinstance(current_user, Parent):
         return jsonify({"status": "error", "message": "Access forbidden", "code": 403}), 403
 
-    session = SessionLocal()
     try:
-        parent = session.query(Parent).filter_by(id=current_user.id).first()
+        parent = g.session.query(Parent).filter_by(id=current_user.id).first()
 
         if parent is None:
             return jsonify({"status": "error", "message": "Parent not found", "code": 404}), 404
@@ -866,15 +799,11 @@ def get_children():
         app.logger.error(f"SQLAlchemyError: {e}")
         return jsonify({"status": "error", "message": "An error occurred", "code": 500}), 500
 
-    finally:
-        session.close()
-
 
 ### Student Endpoints ###
 
 @app.route('/students', methods=['POST'])
 def register_student():
-    session = SessionLocal()
     data = request.form
 
     name = data.get('name')
@@ -893,7 +822,7 @@ def register_student():
             return jsonify({"status": "error", "message": "Invalid email format", "code": 400}), 400
 
         # Check if a student with this email already exists
-        existing_user = session.query(User).filter_by(email=email).first()
+        existing_user = g.session.query(User).filter_by(email=email).first()
         
         if existing_user:
             return jsonify({"status": "error", "message": "A user with this email already exists", "code": 409}), 409
@@ -907,28 +836,24 @@ def register_student():
 
         new_student = Student(name=name, email=email, password=password, image=image_path)
 
-        session.add(new_student)
-        session.commit()
+        g.session.add(new_student)
+        g.session.commit()
         return jsonify({"status": "success", "message": "Student created", "code": 201}), 201
 
     except SQLAlchemyError as e:
         app.logger.error(f"SQLAlchemyError: {e}")
-        session.rollback()
+        g.session.rollback()
         return jsonify({"status": "error", "message": "An error occurred while creating the student", "code": 500}), 500
     
     except ValueError as e:
         app.logger.error(f"ValueError: {e}")
-        session.rollback()
+        g.session.rollback()
         return jsonify({"status": "error", "message": "Cannot recognize a face from the image", "code": 422}), 422
-
-    finally:
-        session.close()
 
 
 @app.route('/students', methods=['PUT'])
 @login_required
 def update_student():
-    session = SessionLocal()
     data = request.form
 
     name = data.get('name')
@@ -947,7 +872,7 @@ def update_student():
             return jsonify({"status": "error", "message": "User is not a student", "code": 403}), 403
 
         # Find the student
-        student = session.query(Student).filter_by(id=current_user.id).first()
+        student = g.session.query(Student).filter_by(id=current_user.id).first()
         if not student:
             return jsonify({"status": "error", "message": "Student not found", "code": 404}), 404
 
@@ -956,7 +881,7 @@ def update_student():
             if not is_valid_email(email):
                 return jsonify({"status": "error", "message": "Invalid email format", "code": 400}), 400
 
-            if session.query(User).filter(User.email==email, User.id!=current_user.id).first():
+            if g.session.query(User).filter(User.email==email, User.id!=current_user.id).first():
                 return jsonify({"status": "error", "message": "A user with this email already exists", "code": 403}), 403
             
         # If an image was provided, validate it, save it and get its path
@@ -967,31 +892,28 @@ def update_student():
             image.save(image_path)
         
         # Update the student's profile
-        student.update_profile(session=session, name=name, email=email, image=image_path)
+        student.update_profile(session=g.session, name=name, email=email, image=image_path)
         return jsonify({"status": "success", "message": "Student updated", "code": 200}), 200
 
     except SQLAlchemyError as e:
         app.logger.error(f"SQLAlchemyError: {e}")
-        session.rollback()
+        g.session.rollback()
         return jsonify({"status": "error", "message": "An error occurred while updating the student", "code": 500}), 500
     
     except ValueError as e:
         app.logger.error(f"ValueError: {e}")
-        session.rollback()
+        g.session.rollback()
         return jsonify({"status": "error", "message": "Cannot recognize a face from the image", "code": 422}), 422
 
-    finally:
-        session.close()
 
 @app.route('/classes', methods=['GET'])
 @login_required
 def get_classes():
-    session = SessionLocal()
-    if not isinstance(current_user, Student) or not isinstance(current_user, Teacher):
+    if isinstance(current_user, Parent):
             return jsonify({"status": "error", "message": "Access forbidden", "code": 403}), 403
     try:
         if isinstance(current_user, Student):
-            student = session.query(Student).filter_by(id=current_user.id).first()
+            student = g.session.query(Student).filter_by(id=current_user.id).first()
 
             if student is None:
                 return jsonify({"status": "error", "message": "Student not found", "code": 404}), 404
@@ -999,7 +921,7 @@ def get_classes():
             classes = [{"id": _class.id, "name": _class.class_name} for _class in student.classes]
             return jsonify({"status": "success", "classes": classes, "code": 200}), 200
         elif isinstance(current_user, Teacher):
-            teacher = session.query(Teacher).filter_by(id=current_user.id).first()
+            teacher = g.session.query(Teacher).filter_by(id=current_user.id).first()
 
             if teacher is None:
                 return jsonify({"status": "error", "message": "Teacher not found", "code": 404}), 404
@@ -1011,21 +933,17 @@ def get_classes():
         app.logger.error(f"SQLAlchemyError: {e}")
         return jsonify({"status": "error", "message": "An error occurred", "code": 500}), 500
 
-    finally:
-        session.close()
-
 
 ### Class Endpoints ###
 @app.route('/classes/<int:class_id>/students', methods=['GET'])
 @login_required
 def get_students(class_id):
-    session = SessionLocal()
     try:
         if not isinstance(current_user, Teacher):
             return jsonify({"status": "error", "message": "Unauthorized", "code": 403}), 403 
 
         # Check if the logged in user is the teacher of the class
-        teacher_class = session.query(Class).filter_by(id=class_id, teacher_id=current_user.id).first()
+        teacher_class = g.session.query(Class).filter_by(id=class_id, teacher_id=current_user.id).first()
         if not teacher_class:
             return jsonify({"status": "error", "message": "Unauthorized", "code": 403}), 403
 
@@ -1045,33 +963,30 @@ def get_students(class_id):
     except SQLAlchemyError as e:
         app.logger.error(f"SQLAlchemyError: {e}")
         return jsonify({"status": "error", "message": "An error occurred while adding the student to the class", "code": 500}), 500
-    
-    finally:
-        session.close()
+
 
 @app.route('/classes/<int:class_id>/students/<int:student_id>', methods=['GET'])
 @login_required
 def get_student_profile(class_id, student_id):
     # Get the current user from Flask-Login
-    session = SessionLocal()
 
     try:
         # If the current user is a teacher, they can view the profile of the student who is in their class
         if isinstance(current_user, Teacher):
             # Find the class
-            class_ = session.query(Class).filter_by(id=class_id, teacher_id=current_user.id).first()
+            class_ = g.session.query(Class).filter_by(id=class_id, teacher_id=current_user.id).first()
             if not class_:
                 return jsonify({"status": "error", "message": "Class not found", "code": 404}), 404
 
             # Get the student's profile
-            student_profile = current_user.get_student_profile(session=session, student_id=student_id)
+            student_profile = current_user.get_student_profile(session=g.session, student_id=student_id)
             if not student_profile:
                 return jsonify({"status": "error", "message": "Student not found", "code": 404}), 404
 
         # If the current user is a parent, they can view the profile of their children
         elif isinstance(current_user, Parent):
             # Get the child's profile
-            student_profile = current_user.get_child_profile(session=session, student_id=student_id)
+            student_profile = current_user.get_child_profile(session=g.session, student_id=student_id)
             if not student_profile:
                 return jsonify({"status": "error", "message": "Student not found or you are not the parent of this student", "code": 404}), 404
 
@@ -1090,25 +1005,22 @@ def get_student_profile(class_id, student_id):
         app.logger.error(f"SQLAlchemyError: {e}")
         return jsonify({"status": "error", "message": "An error occurred", "code": 500}), 500
 
-    finally:
-        session.close()
 
 @app.route('/classes/<int:class_id>', methods=['GET'])
 @login_required
 def get_class_code(class_id):
-    session = SessionLocal()
     try:
         if isinstance(current_user, Parent):
             return jsonify({"status": "error", "message": "Unauthorized: Forbidden", "code": 403}), 403
         elif isinstance(current_user, Student):
-            if not session.query(student_class_association).filter_by(student_id=current_user.id, class_id=class_.id).first() is not None:
+            if not g.session.query(student_class_association).filter_by(student_id=current_user.id, class_id=class_.id).first() is not None:
                 return jsonify({"status": "error", "message": "Unauthorized: Forbidden", "code": 403}), 403
         elif isinstance(current_user, Teacher):
-            teacher_class = session.query(Class).filter_by(id=class_id, teacher_id=current_user.id).first()
+            teacher_class = g.session.query(Class).filter_by(id=class_id, teacher_id=current_user.id).first()
             if not teacher_class:
                 return jsonify({"status": "error", "message": "Unauthorized", "code": 403}), 403
         
-        class_ = session.query(Class).filter_by(id=class_id).first()
+        class_ = g.session.query(Class).filter_by(id=class_id).first()
         if not class_:
             return jsonify({"status": "error", "message": "Class not found", "code": 404}), 404
 
@@ -1124,8 +1036,6 @@ def get_class_code(class_id):
         app.logger.error(f"SQLAlchemyError: {e}")
         return jsonify({"status": "error", "message": "An error occurred", "code": 500}), 500
 
-    finally:
-        session.close()
 
 if __name__ == '__main__':
     Base.metadata.create_all(bind=engine)

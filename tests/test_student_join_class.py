@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 class TestStudentJoinClass(unittest.TestCase):
     def setUp(self):
+        os.environ["FLASK_ENV"] = "testing"
         app.config.from_object(TestConfig)  # Use test configuration
         self.client = app.test_client()
         Base.metadata.create_all(bind=engine)  # Create all tables
