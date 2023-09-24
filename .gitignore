@@ -1,0 +1,37 @@
+# Python specific
+*.pyc
+__pycache__/
+
+# Virtual environment
+venv/
+myenv/
+env/
+
+# IDE specific
+.idea/
+.vscode/
+
+# Compiled files or binaries
+*.o
+*.class
+*.exe
+*.dll
+
+# Log files
+*.log
+
+# Dependency directories
+node_modules/
+bower_components/
+
+# Compiled output
+dist/
+build/
+*.egg-info/
+
+# Miscellaneous
+*.swp
+.DS_Store
+
+# Ignore configuration file
+config.ini
