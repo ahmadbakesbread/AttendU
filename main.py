@@ -15,7 +15,7 @@ def main():
     to confirm their identity.
     """
     with DatabaseManager() as db_manager:
-        db_manager.initialize_database()
+        print(db_manager.initialize_database())
         db_manager.add_student('2456248501', 'Lebron James', 'lebron.jpg') # New student added to the database
 
         video_capture = cv2.VideoCapture(0, cv2.CAP_DSHOW) # Captures Video & Makes Camera Setup Faster
@@ -40,11 +40,13 @@ def main():
                 continous_recognition = False
             else:
                 for (top, right, bottom, left), face_encoding in zip(face_locations, face_encodings):
-                    student_number, student_name = db_manager.identify_student(face_encoding) 
+                    identification_result = db_manager.identify_student(face_encoding)
                     
-                    if student_name and student_number:  # Conditon checks if student in the frame is recognized based on the face encodings in the database
-                        if last_seen_student == student_number:  # Condition Comapares Student With The Last Seen Student
-                            if start_time and time.time() - start_time >= 4:  # Conditon checks if the student has been continously recognized for at least 4 seconds
+                    if identification_result['status'] == 'success':  # Conditon checks if student in the frame is recognized based on the face encodings in the database
+                        student_name = identification_result['student_name']
+                        student_number = identification_result['student_number']
+                        if last_seen_student == student_number:  # Condition Compares Student With The Last Seen Student
+                            if start_time and time.time() - start_time >= 4:  # Condition checks if the student has been continously recognized for at least 4 seconds
                                 continous_recognition = True  # If all conditions are met, set the value of continous_recognition to True
 
                         else:  # If a new student is recognized, reset the timer

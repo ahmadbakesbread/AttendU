@@ -3,7 +3,7 @@ import pickle
 import face_recognition as fr
 import csv
 import pyodbc
-from typing import Tuple, Optional
+from typing import Dict, Optional, Union
 from numpy import ndarray
 import configparser
 
@@ -27,6 +27,9 @@ class DatabaseManager:
         """
         Initializes an instance of the DatabaseManager class by establishing a connection
         to the database.
+
+        Raises:
+            Exception: If a connection to the database cannot be established.
         """
         config = configparser.ConfigParser()
         config.read('config.ini')
@@ -35,8 +38,7 @@ class DatabaseManager:
         try:
             self._cursor = self._connection.cursor()
         except pyodbc.Error as e:
-            print("Error creating cursor", e)
-            self._cursor = None
+            raise Exception(f"Error creating cursor: {str(e)}")
     
     def _create_connection(self) -> Optional[pyodbc.Connection]:
         """
@@ -46,7 +48,7 @@ class DatabaseManager:
             Connection to the MySQL database or None if a connection could not be established.
 
         Raises:
-            pyodbc.Error: If a connection to the database cannot be established.
+            Exception: If a connection to the database cannot be established.
         """
         config = configparser.ConfigParser()
         config.read('config.ini')
@@ -55,26 +57,30 @@ class DatabaseManager:
         password = config['DATABASE']['password']
         driver = config['DATABASE']['driver']
         hostname = config['DATABASE']['host']
+        connection_string = f"DRIVER={{{driver}}};SERVER={hostname};DATABASE={self._db_name};UID={username};PWD={password}"
         try:
-            connection_string = f"DRIVER={{{driver}}};SERVER={hostname};DATABASE={self._db_name};UID={username};PWD={password}"
             return pyodbc.connect(connection_string)
         except pyodbc.Error as e:
-            print("Error connecting to the database", e)
-            return None
+            raise Exception(f"Error connecting to the database: {str(e)}")
     
-    def close_connection(self) -> None:
+    def close_connection(self) -> dict:
         """
         Closes the cursor and connection to the database.
 
         Raises:
-            pyodbc.Error: If the cursor/connection is already closed.
+            dict: Dictionary containing the 'status', 'message', and 'code'.
         """
         try:
-            self._connection.execute("SELECT 1")
-        except pyodbc.Error:
-            print("Connection already closed.")
-        else:
+            self._cursor.close()
+        except Exception as e:
+            return {"status": "error", "message": f"Error occurred while closing cursor: {str(e)}", "code": 500}
+        
+        try:
             self._connection.close()
+        except Exception as e:
+            return {"status": "error", "message": f"Error occurred while closing connection: {str(e)}", "code": 500}
+        
+        return {"status": "success", "message": "Database connection successfully closed.", "code": 200}
     
     def __enter__(self) -> DatabaseManager:
         """
@@ -83,16 +89,21 @@ class DatabaseManager:
 
         Returns:
             self: The current instance of DatabaseManager.
+        
+        Raises:
+            Exception: If a connection to the database cannot be established.
         """
         config = configparser.ConfigParser()
         config.read('config.ini')
         self._db_name = config['DATABASE']['db_name']
         self._connection = self._create_connection()
-        if self._connection:
+        try:
             self._cursor = self._connection.cursor()
+        except pyodbc.Error as e:
+            raise Exception(f"Error creating cursor: {str(e)}")
         return self
     
-    def __exit__(self, exc_type, exc_value, traceback) -> None:
+    def __exit__(self, exc_type, exc_value, traceback) -> dict:
         """
         Closes the connection to the database. This method is automatically called 
         when exiting the 'with' statement, even if an error was raised within the 'with' block.
@@ -103,22 +114,22 @@ class DatabaseManager:
             traceback: A traceback object encapsulating the call stack at the point 
                     where the exception originally occurred, if any.
         """
-        self.close_connection()
+        return self.close_connection()
 
-    def initialize_database(self) -> bool:
+    def initialize_database(self) -> dict:
         """
         Initializes the specified database, removing all existing student data
         and repopulates it using the data from the student_info.csv file. 
 
         Returns:
-            bool: True if the database was successfully initialized, False otherwise.
+            dict: Dictionary containing the 'status', 'message', and 'code'.
         """
+        errors = []
         # Resetting (emptying) the database. 
         try :
             self._cursor.execute(f"DELETE FROM {self._db_name}.students")  
         except pyodbc.Error as e:
-            print(f"Error occurred while attempting to delete from the database: {e}")
-            return False
+            return {"status": "failed", "message": f"Error occurred while attempting to delete from the database: {e}", "code": 500, "errors": errors}
 
         # Reading student info from CSV file.
         try:
@@ -134,7 +145,7 @@ class DatabaseManager:
                     try:
                         img = fr.load_image_file("./images/" + img_path)
                     except FileNotFoundError:
-                        print(f"Image {img_path} not found.")
+                        errors.append({"status": "failed", "message": f"Image {img_path} not found.", "code": 404})
                         continue
                     
                     # Computing the face encoding from the student image.
@@ -147,17 +158,20 @@ class DatabaseManager:
                         try:
                             self._cursor.execute(query, (student_number, student_name, serial_face_encoding))
                         except pyodbc.Error as e:
-                            print(f"Error occurred while attempting to insert {student_number} into the database: {e}")
+                            errors.append({"status": "failed", "message": f"Error occurred while attempting to insert {student_number} into the database: {e}", "code": 500})
                             continue
+        
         except FileNotFoundError:
-            print("CSV file not found.")
-            return False
+            return {"status": "failed", "message": "CSV file not found.", "code": 404, "errors": errors}
         except Exception as e:
-            print(f"Something went wrong: {e}")
-            return False
+            return {"status": "failed", "message": f"Something went wrong: {e}", "code": 500, "errors": errors}
         
         self._connection.commit()
-        return True
+
+        if errors:
+            return {"status": "partial", "message": "Database was partially initialized.", "code": 206, "errors": errors}
+
+        return {"status": "success", "message": "Database was successfully initialized.", "code": 200}
     
     def add_student(self, student_number: str, student_name: str, img_path: str) -> bool:
         """
@@ -169,19 +183,17 @@ class DatabaseManager:
             img_path (str): Path to the image of the student.
 
         Returns:
-            bool: True if the student was successfully added, False otherwise.
+            dict: Dictionary containing the 'status', 'message', and 'code'.
         """
         try:
             img = fr.load_image_file("./images/" + img_path)
         except FileNotFoundError:
-            print(f"{img_path} not found for student {student_name}.")
-            return False
+            return {"status": "error", "message": f"{img_path} not found for student {student_name}.", "code": 404}
         
         face_encodings = fr.face_encodings(img)
 
         if len(face_encodings) == 0:
-            print(f"No face encoding found for student {student_number}.")
-            return False
+            return {"status": "error", "message": f"No face encoding found for student {student_number}.", "code": 400}
         face_encoding = face_encodings[0]
 
         if len(face_encoding) > 0:
@@ -190,13 +202,12 @@ class DatabaseManager:
             try:
                 self._cursor.execute(query, (student_number, student_name, serial_face_encoding))
             except pyodbc.Error as e:
-                print(f"Error occurred while attempting to insert {student_number} into the database: {e}")
-                return False
+                return {"status": "error", "message": f"Error occurred while attempting to insert {student_number} into the database: {str(e)}", "code": 500}
         
         self._connection.commit()
-        return True
+        return {"status": "success", "message": f"Successfully added student {student_name} to the database.", "code": 200}
     
-    def identify_student(self, student_face_encoding: ndarray, tolerance: float = 0.6) -> Tuple[Optional[str], Optional[str]]:
+    def identify_student(self, student_face_encoding: ndarray, tolerance: float = 0.6) -> Dict[str, Union[str, int, None]]:
         """
         Retrieves the student's information from the database by comparing the provided face encoding 
         with the ones stored in the database. The face encoding comparison is done within the given tolerance.
@@ -214,21 +225,18 @@ class DatabaseManager:
             query = f"SELECT student_id, full_name, face_encoding FROM {self._db_name}.students"
             self._cursor.execute(query)
         except pyodbc.Error as e:
-            print(f"Error occurred while attempting to fetch student's data from the database: {e}")
-            return None, None
+            return {"status": "error", "message": f"Error occurred while attempting to fetch student's data from the database: {str(e)}", "code": 500}
         
         rows = self._cursor.fetchall()
         if not rows:
-            print("No students found in the database.")
-            return None, None
+            return {"status": "error", "message": "No students found in the database.", "code": 404}
         
         for (student_number, student_name, face_encoding) in rows:
             face_encoding = pickle.loads(face_encoding)
             matches = fr.compare_faces([face_encoding], student_face_encoding, tolerance)
 
             if True in matches:
-                return student_number, student_name
+                return {"status": "success", "message": "Student successfully identified.", "code": 200, "student_number": student_number, "student_name": student_name}
         
-        print("Student could not be identified.")
-        return None, None
+        return {"status": "error", "message": "Student could not be identified.", "code": 404}
     
