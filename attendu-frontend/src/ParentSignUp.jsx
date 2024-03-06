@@ -1,16 +1,14 @@
 import React, { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom'; // Added useLocation here
 import MyDecision from './MyDecision';
-import { registerStudent } from './api';
+import { registerParent } from './api';
 import './signup.css';
 
 
-function MySignup() { // Student SignUp
+function ParentSignUp() { // Parent SignUp
 
-    // Hooks to manage state
     const location = useLocation(); // Hook to access the current location object
     const { userType } = location.state || {}; // Fallback to an empty object if state is undefined
-    const [imageAdded, setImageAdded] = useState(false); // State to track if an image has been added
     const [input, setInput] = useState({}); // State to hold form inputs
     const [errors, setErrors] = useState({}); // State to hold validation errors
 
@@ -20,16 +18,6 @@ function MySignup() { // Student SignUp
         const value = event.target.value;
         setInput(prevState => ({ ...prevState, [name]: value }));
     }
-
-    // Function to handle image file input change and update state
-    const handleImageChange = (event) => {
-        const file = event.target.files[0];
-        if (file) {
-            setInput(prevState => ({ ...prevState, profilePic: file }));
-            setImageAdded(true); // Set imageAdded to true when a file is selected
-        }
-    };
-
 
     // Function to handle form submission
     const handleSubmit = async (event) => {
@@ -42,37 +30,33 @@ function MySignup() { // Student SignUp
         if (!input.email) newErrors.email = <p className='error-message'>❗ Email is required.</p>;
         if (!input.password) newErrors.password = <p className='error-message'>❗ Password is required.</p>;
         if (!input.confirmPassword) newErrors.confirmPassword = <p className='error-message'>❗ Must Confirm Password.</p>;
-        if (!imageAdded) newErrors.imageAdded = <p className='error-message'>❗ Image is required.</p>;
 
         // If there are errors, update the errors state and abort submission
         if (Object.keys(newErrors).length > 0) {
             setErrors(newErrors);
             return;
         }
-        
+
         const formData = new FormData(); 
         formData.append('name', input.name);
         formData.append('email', input.email);
         formData.append('password', input.password);
         formData.append('confirmPassword', input.confirmPassword);
-        if (input.profilePic) {
-          formData.append('image', input.profilePic);
-        }
 
-        // Attempt to register the student via API call
+        // Attempt to register the parent via API call
         try {
-            const result = await registerStudent(formData);
+            const result = await registerParent(formData);
             console.log(result);
           } 
           catch (error) {
             console.error(error);
           }
-      };
-  
+        }
+
     // Render the signup form
     return (
         // Form and related inputs
-        <div>
+        <body>
         <div className="cool-block">
         <div className="space"></div>
         <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@100;200;300;400;500;600;700;800;900&display=swap" />
@@ -141,29 +125,15 @@ function MySignup() { // Student SignUp
                     </label>
                     <br />
 
-                    <label className='addImage' htmlFor='profilePic' style={{ display: 'block', marginRigt: '100px', marginTop: "-2%" }}>
-                        Provide an Image of Yourself:
-                    </label>
-                    {errors.imageAdded && errors.imageAdded}
-                    {imageAdded && <span style={{ color: 'white', marginLeft: '10px' }}>✓</span>}
-                    <input
-                    id="profilePic"
-                    name="profilePic"
-                    type="file"
-                    accept="image/*"
-                    style={{"display": 'none'}}                
-                    onChange={handleImageChange}
-                    />
-
-                    <input className="submit-button" type="submit" value="Submit" style={{marginTop: "2%"}} />
+                    <input className="submit-button" type="submit" value="Submit" style={{marginTop: "5%"}} />
 
 
         </form>
         <div className="light_circle"></div> 
         </div>
-        </div>
+        </body>
         
     );
 }
 
-export default MySignup;
+export default ParentSignUp;

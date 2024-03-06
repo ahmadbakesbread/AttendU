@@ -2,27 +2,33 @@
     color: #f0f0f0;
 }
 
-.submit-button {
+.parent-button, .student-button, .teacher-button {
     background-color: #051E27;
     color: #f0f0f0;
     border: 1px solid #ffffff;
     border-radius: 10px;
-    width: 100%;
-    height: 100%;
+    width: 100px; /* Fixed width for demonstration */
+    height: 40px;
     padding: 5px 15px;
     cursor: pointer;
     margin-top: 10px;
     transition: background-color 0.3s;
-    font-weight: 00;
+    font-weight: 400; /* Adjusted font-weight for consistency */
+    display: block; /* Makes it easier to manage width */
+    margin: 10px auto; /* Centers button and provides spacing */
 }
 
-.submit-button:hover {
+.parent-button:hover, .student-button:hover, .teacher-button:hover {
     background-color: #104458;
     border: 1px solid #ffffff;
     color: #f0f0f0;
 }
 
+
 .cool-block {
+    flex-direction: column; /* Stack children vertically */
+    align-items: center; /* Center children horizontally */
+    justify-content: center; /* Center children vertically */
     position: relative;
     width: 600px;
     height: 570px;
@@ -33,6 +39,22 @@
     align-items: center;
 
 }
+
+.small-cool-block {
+    flex-direction: column; /* Stack children vertically */
+    align-items: center; /* Center children horizontally */
+    justify-content: center; /* Center children vertically */
+    position: relative;
+    width: 430px;
+    height: 430px;
+    border-radius: 20px;
+    background: #051E27;
+    display: flex;           /* This enables flexbox */
+    justify-content: center; /* This centers children horizontally */
+    align-items: center;
+
+}
+
 
 body {
     margin: 0; /* Ensures there's no default margin */
@@ -55,6 +77,20 @@ body {
     z-index: -1;    /* Ensure it's behind the cool-block content */
 }
 
+.small_light_circle {
+    width: 240px;
+    height: 240px;
+    border-radius: 50%; 
+    background: #EFF6E0;
+    filter: blur(150px);
+    position: absolute;
+    top: 50%;       /* Starts positioning from the center of parent (cool-block) */
+    left: 50%;      /* Same as above */
+    transform: translate(-50%, -50%);  /* This effectively centers the light_circle */
+    z-index: -1;    /* Ensure it's behind the cool-block content */
+}
+
+
 
 form {
     display: flex;
@@ -64,4 +100,54 @@ form {
 
 .space{
     height: 20px;
+}
+
+.submit-button {
+    background-color: #051E27;
+    color: #f0f0f0;
+    border: 1px solid #ffffff;
+    border-radius: 10px;
+    width: 100%;
+    height: 100%;
+    padding: 5px 15px;
+    cursor: pointer;
+    margin-top: 10px;
+    transition: background-color 0.3s;
+    font-weight: 00;
+}
+
+.submit-button:hover {
+    background-color: #104458;
+    border: 1px solid #ffffff;
+    color: #f0f0f0;
+}
+
+.left-aligned {
+    text-align: left;
+  }
+  
+.addImage {
+    border: 1px solid #fff;
+    display: inline-block;
+    padding: 6px 12px; 
+    align-self: center;
+    cursor: pointer;
+    background-color: #051E27;
+    color: #AEC3B0;
+    border-radius: 5px;
+    margin-top: 5px; /* Or any other spacing you prefer */
+    font-family: 'Outfit';
+    font-weight: bold;
+}
+.addImage:hover{
+    background-color: #104458;
+    border: 1px solid #ffffff;
+    color: #f0f0f0;
+}
+
+.error-message{
+    font-family: 'Outfit';
+    font-size: 12px;
+    margin: 0;
+    color:#fb5c5c
 }

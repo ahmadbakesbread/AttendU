@@ -15,7 +15,7 @@ function Welcome() {
                 <h4><a className="hover-underline" href="https://ca.linkedin.com/in/ahmad-kanoun-8270a2265/" target="_blank"
                     style={{marginLeft: '150px', textDecoration: 'none'}}>contact.</a></h4>
                 <Link to="/login" className="hover-underline" style={{marginLeft: '150px', marginTop: '19px', fontWeight: '300', textDecoration: 'none'}}>log in.</Link>
-                <Link to="/signup" className="hover-underline" style={{marginLeft: '150px', marginTop: '19px',textDecoration: 'none', fontWeight: '500'}}>Sign Up.</Link>
+                <Link to="/signup/decision" className="sign-up-link" style={{ marginLeft: '150px', marginTop: '19px', fontWeight: '300', textDecoration: 'none' }}>Sign Up.</Link>
             </header>
             
             <h4 style={{
