@@ -531,14 +531,17 @@ def register_teacher():
     name = data.get('name')
     email = data.get('email')
     password = data.get('password')
-
+    confirmPassword = data.get('confirmPassword')
     image_path = None  # Default value for image_path
     file = request.files.get('image')
     
     try:
 
-        if not name or not email or not password:
+        if not name or not email or not password or not confirmPassword:
             return jsonify({"status": "error", "message": "Missing required fields", "code": 400}), 400
+        
+        if confirmPassword != password: # Check if passwords match.
+            return jsonify({"status": "error", "message": "Passwords do not match", "code": 400}), 400
 
         if len(name) > 60:
             return jsonify({"status": "error", "message": "Name too long", "code": 400}), 400
@@ -695,13 +698,17 @@ def register_parent():
     name = data.get('name')
     email = data.get('email')
     password = data.get('password')
+    confirmPassword = data.get('confirmPassword')
     image_path = None  # Default value for image_path
     file = request.files.get('image')
     
     try:
-        if not name or not email or not password:
+        if not name or not email or not password or not confirmPassword:
             return jsonify({"status": "error", "message": "Missing required fields", "code": 400}), 400
         
+        if confirmPassword != password: # Check if passwords match.
+            return jsonify({"status": "error", "message": "Passwords do not match", "code": 400}), 400
+
         if len(name) > 60:
             return jsonify({"status": "error", "message": "Name too long", "code": 400}), 400
         
@@ -743,7 +750,6 @@ def update_parent():
         # If no fields to update were provided
         if not name and not email and not image:
             return jsonify({"status": "error", "message": "No fields to update were provided", "code": 400}), 400
-
         if name and len(name) > 60:
             return jsonify({"status": "error", "message": "Name too long", "code": 400}), 400
         
@@ -809,12 +815,16 @@ def register_student():
     name = data.get('name')
     email = data.get('email')
     password = data.get('password')
+    confirmPassword = data.get('confirmPassword') # Added a confirmed password field.
     file = request.files.get('image')
     
     try:
-        if not name or not email or not password or not file:
+        if not name or not email or not password or not confirmPassword or not file:
+            print("1")
             return jsonify({"status": "error", "message": "Missing required fields", "code": 400}), 400
         
+        if confirmPassword != password: # Check if passwords match.
+            return jsonify({"status": "error", "message": "Passwords do not match", "code": 400}), 400
         if len(name) > 60:
             return jsonify({"status": "error", "message": "Name too long", "code": 400}), 400
         
