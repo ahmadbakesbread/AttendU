@@ -8,7 +8,7 @@ host = config['DATABASE']['host']
 user = config['DATABASE']['username']
 password = config['DATABASE']['password']
 database = config['DATABASE']['db_name']
-driver = config['DATABASE']['driver']
+#driver = config['DATABASE']['driver']
 port = config['DATABASE']['port']
 password = quote(password, safe='')
 

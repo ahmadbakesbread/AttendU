@@ -299,7 +299,11 @@ class Student(User):
     def __init__(self, name, email, password, image=None) -> None:
         super().__init__(name, email, password, image)
         if self.image:
-            self._update_face_vector()
+            try:
+                self._update_face_vector()
+            except Exception:
+                # skip if encoding unavailable or fails
+                self.face_vector = None
     
     def join_class(self, session: Session, class_id: int):
         try:
@@ -339,7 +343,10 @@ class Student(User):
                 self.email = email
             if image:
                 self.image = image
-                self._update_face_vector()
+                try:
+                    self._update_face_vector()
+                except Exception:
+                    self.face_vector = None
             session.commit()
         except SQLAlchemyError:
             session.rollback()

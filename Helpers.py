@@ -1,7 +1,14 @@
-import face_recognition as fr
 import re
 import random
 import string
+
+# FALL BACK TO STUB FOR JUST TONIGHT WHILE I SETUP SOMETH ELSE!
+try:
+    import face_recognition as fr
+    FACE_ENABLED = True
+except Exception:
+    fr = None
+    FACE_ENABLED = False
 
 def image_to_encoding(img_path: str):
     try:
