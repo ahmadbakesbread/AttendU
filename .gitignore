@@ -1,40 +1,89 @@
-# Python specific
+#################################
+# Logs
+#################################
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+#################################
+# Node / Vite (Frontend)
+#################################
+node_modules/
+dist/
+dist-ssr/
+*.local
+
+# Vite cache
+.vite/
+
+# Production build output
+build/
+
+#################################
+# Python / Flask (Backend)
+#################################
+# Bytecode
 *.pyc
+*.pyo
+*.pyd
 __pycache__/
 
-# Virtual environment
+# Virtual environments
 venv/
-myenv/
 env/
+myenv/
+.venv/
 
-# IDE specific
-.idea/
+# Packaging files
+*.egg-info/
+instance/
+
+#################################
+# Environment & Config
+#################################
+# Secrets / API keys / local configs
+*.env
+config.ini
+
+#################################
+# IDE & Editor Junk
+#################################
+# VSCode
 .vscode/
+!.vscode/extensions.json
 
-# Compiled files or binaries
+# JetBrains / PyCharm
+.idea/
+
+# macOS
+.DS_Store
+
+# Windows
+Thumbs.db
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+#################################
+# Compiled / Binary Files
+#################################
 *.o
 *.class
 *.exe
 *.dll
 
-# Log files
-*.log
-
-# Dependency directories
-node_modules/
+#################################
+# Bower (if used)
+#################################
 bower_components/
 
-# Compiled output
-dist/
-build/
-*.egg-info/
-
+#################################
 # Miscellaneous
+#################################
 *.swp
-.DS_Store
-
-# Ignore configuration file
-config.ini
-
-# environment variables
-*.env

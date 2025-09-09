@@ -184,6 +184,13 @@ def auth_logout():
     j = get_jwt()
     if j:
         TOKEN_BLOCKLIST.add(j["jti"])
+    rt = request.cookies.get("refresh_token")
+    if rt:
+        try:
+            payload = decode_token(rt)
+            TOKEN_BLOCKLIST.add(payload["jti"])
+        except Exception:
+            pass
     resp = jsonify({"status": "success", "message": "Logged out", "code": 200})
     clear_auth_cookies(resp)
     return resp, 200
@@ -206,11 +213,20 @@ def delete_user():
         app.logger.error(f"SQLAlchemyError: {e}")
         g.session.rollback()
         return jsonify({"status": "error", "message": "An error occurred while deleting the user", "code": 500}), 500
+
+@app.route('/me', methods=['GET'])
+@jwt_required()
+def me():
+    j = get_jwt()
+    return jsonify({
+        "status":"success",
+        "user": {"id": get_jwt_identity(), "role": j.get("role"), "name": j.get("name")}
+    }), 200
     
 ##### UPLOAD #####
 
-@jwt_required()
 @app.route('/upload', methods=['POST'])
+@jwt_required()
 def upload_file():
     if 'file' not in request.files:
         return jsonify({"status": "error", "message": "No file part", "code": 400}), 400
@@ -484,7 +500,7 @@ def student_send_parent_request():
         return jsonify({"status": "error", "message": "Something went wrong", "code": 500}), 500
 
 
-@app.route('/students/requests/<int:request_id>/respond', methods=['POST'])
+@app.route('/students/parent-requests/<int:request_id>/respond', methods=['POST'])
 @jwt_required()
 @role_required("student")
 def student_respond_to_parent_request(request_id):

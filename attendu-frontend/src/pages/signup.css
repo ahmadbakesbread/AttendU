@@ -1,0 +1,93 @@
+/* signup page layout! - outer page layour */
+.page {
+    min-height: 100dvh;               /* makes page full viewport height (top to bottom) */
+    display: grid;
+    place-items: center;              /* center one card */
+    background: #01161E;
+    padding: 24px;                    /* adds breathing room around edges */
+  }
+  
+  /* card container */
+  .card {
+    width: 100%;                      /* mobile width */
+    max-width: 460px;                 /* desktop width (caps out at 460px) */
+    background: #051E27;
+    border-radius: 20px;              /* rounded corners */
+    padding: 28px 24px 32px;          /* spacing inside card */
+    position: relative;               /* USEFUL for placing absolutely positioned elements */
+    box-shadow: 0 10px 30px rgba(0,0,0,0.25);   /* subtle shadow */
+  }
+  
+  /* sets da heading style (login/sign up) */
+  .title {
+    color: #f0f0f0;
+    font-family: 'Outfit', sans-serif;
+    font-weight: 600;
+    font-size: 24px;
+    text-align: center;
+    margin: 0 0 14px;                 /* space below but not above */
+  }
+  
+  /* labels ABOVE inputs (email, password, etc.) */
+  .signup-label {
+    color: #f0f0f0;
+    font-family: 'Outfit', sans-serif;
+    display: block;
+    margin: 12px 0 2px;
+    font-weight: 400;
+    font-size: 14px;
+  }
+  
+    /* THE INPUTS (email/password fields) */
+  .input {
+    color: #AEC3B0;
+    background-color: #051E27;
+    border: 1px solid #ffffff;
+    border-radius: 6px;
+    height: 40px;
+    width: 100%;
+    padding: 0 12px;                  /* we dont want squished text */
+    font-family: 'Outfit', sans-serif;
+  }
+  
+  /* siubmit button */
+  .submit-button {
+    margin-top: 18px;
+    width: 100%;
+    height: 44px;
+    background-color: #051E27;
+    color: #f0f0f0;
+    border: 1px solid #ffffff;
+    border-radius: 10px;
+    cursor: pointer;                  /* makes button feel clickable */
+    transition: background-color .2s ease;
+  }
+  
+  .submit-button:hover {
+    background-color: #104458;      /* feedback when hoverin */
+  }
+  
+  /* error stuff */
+  .error-message {
+    font-family: 'Outfit', sans-serif;
+    font-size: 12px;
+    margin: 6px 0 0;
+    color: #fb5c5c;
+  }
+  
+  /* decorative glow behind card for lighting effect */
+  .light_circle {
+    width: 220px;
+    height: 220px;
+    border-radius: 50%;
+    background: #EFF6E0;
+    filter: blur(150px);
+    position: absolute;
+    top: -40px;
+    right: -40px;
+    z-index: 0;
+  }
+
+/* spacing helpers */
+.mt-1 { margin-top: 8px; }
+.mt-2 { margin-top: 16px; }

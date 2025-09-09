@@ -1,94 +1,28 @@
-const API_BASE_URL = 'http://127.0.0.1:5000';
+import { request } from "./apiClient";    // import the request wrapper we made around fetch() .
 
-// Asynchronous function to register a student using formData object which contains user input
+// this is the central api layer of the app. it bridges the frontend and backend.
 
-export const registerStudent = async (formData) => {
-    try {
-        // Attempt to post formData to the student registration API endpoint
-        const response = await fetch(`${API_BASE_URL}/students`, {
-          method: 'POST',
-          body: formData,
-        });
-    
-        // If the response is not ok, throw an error to be caught below
-        if (!response.ok) {
-          throw new Error('Student registration failed');
-        }
-       
-        // Parse and return the JSON response from the API
-        return await response.json();
-      } catch (error) {
-        // Log any errors to the console
-        console.error('Error during student registration:', error);
-        throw error;
-      }
-};
+const get = (path) => request(path, { method: "GET" });     // simple get helper
+const postJSON = (path, data) =>                            // simple post helper convert javascript obj into json data
+  request(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });                 
+const postForm = (path, formData) =>                        // simple post helper convert javascript obj into form data
+  request(path, { method: "POST", body: formData });
 
-// Similar functions for registering teachers and parents, and for user login
-// Each function posts to a different API endpoint and handles responses accordingly
+// authentication and signup endpoints
 
-export const registerTeacher = async (formData) => {
-    try {
-        const response = await fetch(`${API_BASE_URL}/teachers`, {
-          method: 'POST',
-          body: formData,
-        });
-    
-        if (!response.ok) {
-          throw new Error('Teacher registration failed');
-        }
-    
-        return await response.json();
-      } catch (error) {
-        console.error('Error during teacher registration:', error);
-        throw error;
-      }
-};
+export const login    = ({ email, password }) => postJSON("/auth/login", { email, password });
+export const logout   = () => request("/auth/logout", { method: "POST" });
+export const refresh  = () => request("/auth/refresh", { method: "POST" });
 
-export const registerParent = async (formData) => {
-    try {
-        const response = await fetch(`${API_BASE_URL}/parents`, {
-          method: 'POST',
-          body: formData,
-        });
-    
-        if (!response.ok) {
-          throw new Error('Teacher registration failed');
-        }
-    
-        return await response.json();
-      } catch (error) {
-        console.error('Error during teacher registration:', error);
-        throw error;
-      }
-};
+export const registerStudent = (formData) => postForm("/students", formData);
+export const registerTeacher = (formData) => postForm("/teachers", formData);
+export const registerParent  = (formData) => postForm("/parents",  formData);
 
-export const login = async (json) => {
-  try {
-    const response = await fetch(`${API_BASE_URL}/login`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: json
-    });
+// classes API
 
-    if (!response.ok) {
-      throw new Error('Login failed');
-    }
-
-    return await response.json();
-  } catch (error) {
-    console.error('Error during login:', error);
-    throw error;
-  }
-};
-
-
-
-
-    
-
-
-
-    
+export const createClass = (className) => postJSON("/classes", { class_name: className });
+export const getClasses  = () => get("/classes");

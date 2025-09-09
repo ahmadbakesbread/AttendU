@@ -1,13 +1,24 @@
-body {
-  margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
-    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
-    sans-serif;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+/* controls the global styles for AttendU app */
+
+/* the start * applies this rule to every element. (removes default margins amd padding for consistency) */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+/* base sizing for app container */
+html, body, #root {
+  height: 100%;
+  width: 100%;
 }
 
-code {
-  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
-    monospace;
+/* body styling */
+body {
+  background: #01161E;
+  color: #f0f0f0;
+  font-family: 'Outfit', system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+  display: block;
+}
+
+/* ensures each page takes at least the full viewport height. */
+main {
+  min-height: 100vh;
+  width: 100%;
 }
