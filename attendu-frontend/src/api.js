@@ -45,7 +45,7 @@ export const parentSendChildRequest = (email) => postJSON("/api/parents/family/r
 // export const getMyAttendanceInClass = (classId) => get(`/api/classes/${classId}/attendance/me`); // student self
 
 export const getStudentFamilyRequests = (status = "pending") =>
-  get(`/api/students/family/requests?status=${encodeURIComponent(status)}`);;
+  get(`/api/students/family/requests/?status=${encodeURIComponent(status)}`);;
 
 export const getStudentClassInvites = (status = "pending") =>
   get(`/api/students/classes/requests?status=${encodeURIComponent(status)}`);
@@ -54,8 +54,8 @@ export const getStudentClassInvites = (status = "pending") =>
 export const studentRespondToParentRequest = (request_id, response) =>
   patchJSON(`/api/students/family/requests/${request_id}`, { response });
 
-export const studentRespondToClassInvite = (class_id, request_id, response) =>
-  patchJSON(`/api/students/classes/${class_id}/requests/${request_id}`, { response });
+export const studentRespondToClassInvite = (request_id, response) =>
+  patchJSON(`/api/students/classes/requests/${request_id}`, { response });
 
 export const getMyParentsAsStudent = () => get("/api/students/family");
 
