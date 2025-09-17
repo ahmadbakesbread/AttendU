@@ -129,7 +129,7 @@ def allowed_file(filename):
 
 ##### AUTH #####
 
-@app.route('/auth/login', methods=['POST'])
+@app.route('/api/auth/login', methods=['POST'])
 def auth_login():
     data = request.get_json() or {}
     email = data.get('email')
@@ -165,7 +165,7 @@ def auth_login():
     
     return resp, 200
 
-@app.route('/auth/refresh', methods=['POST'])
+@app.route('/api/auth/refresh', methods=['POST'])
 @jwt_required(refresh=True, locations=['cookies', 'headers'])
 def auth_refresh():
     claims = get_jwt()
@@ -178,7 +178,7 @@ def auth_refresh():
     set_access_cookie(resp, new_access)
     return resp, 200
 
-@app.route('/auth/logout', methods=['POST'])
+@app.route('/api/auth/logout', methods=['POST'])
 @jwt_required(optional=True)
 def auth_logout():
     j = get_jwt()
@@ -195,7 +195,7 @@ def auth_logout():
     clear_auth_cookies(resp)
     return resp, 200
 
-@app.route('/users', methods=['DELETE'])
+@app.route('/api/users', methods=['DELETE'])
 def delete_user():
     try:
         if not g.user:
@@ -214,7 +214,7 @@ def delete_user():
         g.session.rollback()
         return jsonify({"status": "error", "message": "An error occurred while deleting the user", "code": 500}), 500
 
-@app.route('/me', methods=['GET'])
+@app.route('/api/me', methods=['GET'])
 @jwt_required()
 def me():
     j = get_jwt()
@@ -225,7 +225,7 @@ def me():
     
 ##### UPLOAD #####
 
-@app.route('/upload', methods=['POST'])
+@app.route('/api/upload', methods=['POST'])
 @jwt_required()
 def upload_file():
     if 'file' not in request.files:
@@ -249,7 +249,7 @@ def upload_file():
     return jsonify({"status": "error", "message": "File type not allowed", "code": 400}), 400
 
 ##### TEACHER <-> Student #####
-@app.route('/teacher/classes/<int:class_id>/send', methods=['POST'])
+@app.route('/api/teachers/classes/<int:class_id>/requests', methods=['POST'])
 @jwt_required()
 @role_required("teacher")
 def teacher_send_request_to_student(class_id):
@@ -294,7 +294,7 @@ def teacher_send_request_to_student(class_id):
         return jsonify({"status": "error", "message": "Something went wrong", "code": 500}), 500
 
 
-@app.route('/students/requests/<int:request_id>/respond', methods=['POST'])
+@app.route('/api/students/classes/requests/<int:request_id>', methods=['PATCH'])
 @jwt_required()
 @role_required("student")
 def student_respond_to_teacher_request(request_id):
@@ -339,7 +339,7 @@ def student_respond_to_teacher_request(request_id):
         g.session.rollback()
         return jsonify({"status": "error", "message": "Something went wrong", "code": 500}), 500
 
-@app.route('/students/classes/join', methods=['POST'])
+@app.route('/api/students/classes/<int:class_id>/requests', methods=['POST'])
 @jwt_required()
 @role_required("student")
 def student_join_class():
@@ -377,7 +377,7 @@ def student_join_class():
         g.session.rollback()
         return jsonify({"status": "error", "message": "Something went wrong", "code": 500}), 500
 
-@app.route('/teachers/requests/<int:request_id>/respond', methods=['POST'])
+@app.route('/api/teacher/classes/<int:class_id>/requests/<int:request_id>', methods=['PATCH'])
 @jwt_required()
 @role_required("teacher")
 def teacher_respond_to_student_request(request_id):
@@ -428,7 +428,7 @@ def teacher_respond_to_student_request(request_id):
 
 ##### PARENT <-> STUDENT #####
 
-@app.route('/parents/students/send', methods=['POST'])
+@app.route('/api/parents/family/requests/', methods=['POST'])
 @jwt_required()
 @role_required("parent")
 def parent_send_child_request():
@@ -465,7 +465,7 @@ def parent_send_child_request():
         return jsonify({"status": "error", "message": "Something went wrong", "code": 500}), 500
 
 
-@app.route('/students/parents/send', methods=['POST'])
+@app.route('/api/students/family/requests/', methods=['POST'])
 @jwt_required()
 @role_required("student")
 def student_send_parent_request():
@@ -500,7 +500,7 @@ def student_send_parent_request():
         return jsonify({"status": "error", "message": "Something went wrong", "code": 500}), 500
 
 
-@app.route('/students/parent-requests/<int:request_id>/respond', methods=['POST'])
+@app.route('/api/students/family/requests/<int:request_id>', methods=['PATCH'])
 @jwt_required()
 @role_required("student")
 def student_respond_to_parent_request(request_id):
@@ -541,7 +541,7 @@ def student_respond_to_parent_request(request_id):
         return jsonify({"status": "error", "message": "Something went wrong", "code": 500}), 500
 
 
-@app.route('/parents/requests/<int:request_id>/respond', methods=['POST'])
+@app.route('/api/parents/family/requests/<int:request_id>', methods=['PATCH'])
 @jwt_required()
 @role_required("parent")
 def parent_respond_to_student_request(request_id):
@@ -584,7 +584,7 @@ def parent_respond_to_student_request(request_id):
 
 ##### CLASS MGMT ####
 
-@app.route('/classes', methods=['POST'])
+@app.route('/api/classes', methods=['POST'])
 @jwt_required()
 @role_required("teacher")
 def create_class():
@@ -617,7 +617,7 @@ def create_class():
         return jsonify({"status": "error", "message": "An error occurred while creating the class", "code": 500}), 500
 
 
-@app.route('/classes/<int:class_id>', methods=['DELETE'])
+@app.route('/api/classes/<int:class_id>', methods=['DELETE'])
 @jwt_required()
 @role_required("teacher")
 def delete_class(class_id):
@@ -639,7 +639,7 @@ def delete_class(class_id):
         g.session.rollback()
         return jsonify({"status": "error", "message": "An error occurred while deleting the class", "code": 500}), 500
 
-@app.route('/classes', methods=['GET'])
+@app.route('/api/classes', methods=['GET'])
 @jwt_required()
 def get_classes():
     if g.role == "parent":
@@ -665,7 +665,7 @@ def get_classes():
         return jsonify({"status": "error", "message": "An error occurred", "code": 500}), 500
 
 
-@app.route('/classes/<int:class_id>/students', methods=['GET'])
+@app.route('/api/classes/<int:class_id>/students', methods=['GET'])
 @jwt_required()
 @role_required("teacher")
 def get_students(class_id):
@@ -693,7 +693,7 @@ def get_students(class_id):
         return jsonify({"status": "error", "message": "An error occurred while adding the student to the class", "code": 500}), 500
 
 
-@app.route('/classes/<int:class_id>/students/<int:student_id>', methods=['GET'])
+@app.route('/api/classes/<int:class_id>/students/<int:student_id>', methods=['GET'])
 @jwt_required()
 def get_student_profile(class_id, student_id):
     try:
@@ -732,7 +732,7 @@ def get_student_profile(class_id, student_id):
         return jsonify({"status": "error", "message": "An error occurred", "code": 500}), 500
 
 
-@app.route('/classes/<int:class_id>', methods=['GET'])
+@app.route('/api/classes/<int:class_id>/code', methods=['GET'])
 @jwt_required()
 def get_class_code(class_id):
     try:
@@ -763,7 +763,7 @@ def get_class_code(class_id):
         return jsonify({"status": "error", "message": "An error occurred", "code": 500}), 500
 
 
-@app.route('/students/classes/<int:class_id>/leave', methods=['POST'])
+@app.route('/api/students/classes/<int:class_id>/requests', methods=['DELETE'])
 @jwt_required()
 @role_required("student")
 def student_leave_class(class_id):
@@ -782,7 +782,7 @@ def student_leave_class(class_id):
         g.session.rollback()
         return jsonify({"status": "error", "message": "Something went wrong", "code": 500}), 500
 
-@app.route('/teachers/classes/<int:class_id>/remove/<int:student_id>', methods=['POST'])
+@app.route('/api/teachers/classes/<int:class_id>/requests/<int:student_id>', methods=['DELETE'])
 @jwt_required()
 @role_required("teacher")
 def teacher_remove_student_from_class(class_id, student_id):
@@ -808,7 +808,7 @@ def teacher_remove_student_from_class(class_id, student_id):
 
 ##### PARENT / STUDENT MGMT #####
 
-@app.route('/parents/students/<int:student_id>/remove', methods=['POST'])
+@app.route('/api/me/students/<int:student_id>', methods=['DELETE'])
 @jwt_required()
 @role_required("parent")
 def parent_remove_student(student_id):
@@ -827,7 +827,7 @@ def parent_remove_student(student_id):
         g.session.rollback()
         return jsonify({"status": "error", "message": "Something went wrong", "code": 500}), 500
 
-@app.route('/students/parents/<int:parent_id>/remove', methods=['POST'])
+@app.route('/api/me/parents/<int:parent_id>', methods=['DELETE'])
 @jwt_required()
 @role_required("student")
 def student_remove_parent(parent_id):
@@ -848,7 +848,7 @@ def student_remove_parent(parent_id):
 
 ##### REGISTRATION #####
 
-@app.route('/teachers', methods=['POST'])
+@app.route('/api/teachers', methods=['POST'])
 def register_teacher():
     data = request.form
 
@@ -897,7 +897,7 @@ def register_teacher():
         return jsonify({"status": "error", "message": "An error occurred while creating the teacher", "code": 500}), 500
 
 
-@app.route('/teachers', methods=['PUT'])
+@app.route('/api/teachers', methods=['PATCH'])
 @jwt_required()
 @role_required("teacher")
 def update_teacher():
@@ -948,7 +948,7 @@ def update_teacher():
         return jsonify({"status": "error", "message": "An error occurred while updating the teacher", "code": 500}), 500
 
 
-@app.route('/parents', methods=['POST'])
+@app.route('/api/parents', methods=['POST'])
 def register_parent():
     data = request.form
 
@@ -995,7 +995,7 @@ def register_parent():
         return jsonify({"status": "error", "message": "An error occurred while creating the parent", "code": 500}), 500
 
 
-@app.route('/parents', methods=['PUT'])
+@app.route('/api/parents', methods=['PATCH'])
 @jwt_required()
 @role_required("parent")
 def update_parent():
@@ -1041,17 +1041,16 @@ def update_parent():
         return jsonify({"status": "error", "message": "An error occurred while updating the parent", "code": 500}), 500
 
 
-@app.route('/children', methods=['GET'])
+@app.route('/api/parents/children', methods=['GET'])
 @jwt_required()
 @role_required("parent")
 def get_children():
     try:
         parent = g.session.query(Parent).filter_by(id=g.user.id).first()
-
         if parent is None:
             return jsonify({"status": "error", "message": "Parent not found", "code": 404}), 404
 
-        children = [child.name for child in parent.children]
+        children = [{"id": child.id, "name": child.name} for child in parent.children]
         return jsonify({"status": "success", "children": children, "code": 200}), 200
 
     except SQLAlchemyError as e:
@@ -1061,7 +1060,7 @@ def get_children():
 
 ### Student Endpoints ###
 
-@app.route('/students', methods=['POST'])
+@app.route('/api/students', methods=['POST'])
 def register_student():
     data = request.form
 
@@ -1114,7 +1113,7 @@ def register_student():
         return jsonify({"status": "error", "message": "Cannot recognize a face from the image", "code": 422}), 422
 
 
-@app.route('/students', methods=['PUT'])
+@app.route('/api/students', methods=['PATCH'])
 @jwt_required()
 @role_required("student")
 def update_student():
@@ -1165,6 +1164,103 @@ def update_student():
         app.logger.error(f"ValueError: {e}")
         g.session.rollback()
         return jsonify({"status": "error", "message": "Cannot recognize a face from the image", "code": 422}), 422
+
+@app.route('/api/students/family/requests/', methods=['GET'])
+@jwt_required()
+@role_required("student")
+def list_family_requests():
+    status = request.args.get('status', 'pending')
+    q = g.session.query(ConnectionRequest).filter_by(
+        recipient_id=g.user.id, type='parent_to_child', status=status
+    )
+    def shape(r):
+        p = g.session.get(Parent, r.sender_id)
+        return {
+            "request_id": r.id,
+            "from_parent_id": p.id if p else None,
+            "from_parent_name": p.name if p else None,
+            "from_parent_email": p.email if p else None,
+            "created_at": getattr(r, "created_at", None)
+        }
+    return jsonify({"status":"success","requests":[shape(r) for r in q.all()],"code":200}), 200
+
+
+@app.route('/api/students/classes/requests', methods=['GET'])
+@jwt_required()
+@role_required("student")
+def list_class_invites():
+    status = request.args.get('status', 'pending')
+    q = g.session.query(ConnectionRequest).filter_by(
+        recipient_id=g.user.id, type='class_invitation', status=status
+    )
+    def shape(r):
+        cls = g.session.get(Class, r.class_id)
+        tname = None
+        if cls:
+            t = g.session.get(Teacher, cls.teacher_id)
+            tname = t.name if t else None
+        return {
+            "request_id": r.id,
+            "class_id": cls.id if cls else None,
+            "class_name": cls.class_name if cls else None,
+            "teacher_name": tname,
+            "created_at": getattr(r, "created_at", None)
+        }
+    return jsonify({"status":"success","requests":[shape(r) for r in q.all()],"code":200}), 200
+
+
+@app.route('/api/students/family', methods=['GET'])
+@jwt_required()
+@role_required("student")
+def list_my_parents():
+    try:
+        student = g.user
+        parents = [{"id": p.id, "name": p.name, "email": p.email} for p in student.parents]
+        return jsonify({"status":"success","parents": parents, "code": 200}), 200
+    except SQLAlchemyError as e:
+        g.session.rollback()
+        return jsonify({"status":"error","message":"An error occurred","code":500}), 500
+
+@app.route('/api/parents/family/requests/incoming', methods=['GET'])
+@jwt_required()
+@role_required("parent")
+def list_parent_incoming_family_requests():
+    status = request.args.get('status', 'pending')
+    q = g.session.query(ConnectionRequest).filter_by(
+        recipient_id=g.user.id, type='child_to_parent', status=status
+    )
+    def shape(r):
+        s = g.session.get(Student, r.sender_id)
+        return {
+            "request_id": r.id,
+            "from_student_id": s.id if s else None,
+            "from_student_name": s.name if s else None,
+            "from_student_email": s.email if s else None,
+            "created_at": getattr(r, "created_at", None),
+        }
+    return jsonify({"status":"success","requests":[shape(r) for r in q.all()],"code":200}), 200
+
+
+@app.route('/api/parents/family/requests/outgoing', methods=['GET'])
+@jwt_required()
+@role_required("parent")
+def list_parent_outgoing_family_requests():
+    status = request.args.get('status', 'pending')  # allow pending/rejected/accepted
+    q = g.session.query(ConnectionRequest).filter_by(
+        sender_id=g.user.id, type='parent_to_child', status=status
+    )
+    def shape(r):
+        s = g.session.get(Student, r.recipient_id)
+        return {
+            "request_id": r.id,
+            "to_student_id": s.id if s else None,
+            "to_student_name": s.name if s else None,
+            "to_student_email": s.email if s else None,
+            "status": r.status,
+            "created_at": getattr(r, "created_at", None),
+        }
+    return jsonify({"status":"success","requests":[shape(r) for r in q.all()],"code":200}), 200
+
 
 ##### MAIN #####
 

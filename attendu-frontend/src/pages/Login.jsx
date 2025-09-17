@@ -1,7 +1,7 @@
 // src/pages/Login.jsx
 import React, { useState } from "react";
 import "./signup.css";
-import { login } from "../api";
+import { login, getMe } from "../api";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../AuthContext.jsx";
 
@@ -12,7 +12,7 @@ export default function Login() {
   const [input, setInput] = useState({});
   const [errors, setErrors] = useState({});
   const navigate = useNavigate();                 // just a simple redirect-er
-  const { setAuthed } = useAuth();                // from AuthContext, updates authentication status (logged in/out)
+  const { setAuthed, setUser } = useAuth();                // from AuthContext, updates authentication status (logged in/out)
 
   // this runs whenever the user types in a field
   const handleChange = (e) =>
@@ -32,7 +32,9 @@ export default function Login() {
 
     try {
       await login({ email: input.email, password: input.password });  // CALLS LOGIN API, SET COOKIES
+      const me = await getMe();
       setAuthed(true);                                                // MARK USER AS LOGGED IN!
+      setUser(me?.user ?? null);
       navigate("/dashboard", { replace: true });                      // REDIRECT TO DASHBOARD
     } catch (err) {
       setErrors({ password: <p className="error-message">❗ {err.message}</p> });

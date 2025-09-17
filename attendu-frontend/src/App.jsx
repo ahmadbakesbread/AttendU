@@ -6,7 +6,11 @@ import SignupDecision from "./pages/SignupDecision.jsx";
 import SignupStudent from "./pages/SignupStudent.jsx";
 import SignupTeacher from "./pages/SignupTeacher.jsx";
 import SignupParent from "./pages/SignupParent.jsx";
-import Dashboard from "./pages/Dashboard.jsx";
+import RoleDashboardRouter from "./pages/RoleDashboardRouter.jsx";
+//import ClassPage from "./pages/ClassPage.jsx";
+//import ParentChildren from "./pages/ParentChildren.jsx";
+//import ParentChildClasses from "./pages/ParentChildClasses.jsx";
+//import ParentChildClassPage from "./pages/ParentChildClassPage.jsx";
 
 // custom route guards to decide who can visit what.
 import { RequireAuth, PublicOnly } from "./routes.jsx";
@@ -27,7 +31,7 @@ export default function App() {
 
       {/* PROTECTED ROUTES - requires authentication (from routes.jsx)*/}
       <Route element={<RequireAuth />}>
-        <Route path="/dashboard" element={<Dashboard />} />
+        <Route path="/dashboard" element={<RoleDashboardRouter />} />
       </Route>
 
       {/* FALLBACK ROUTE... handles any unknown URL, redirect to / */}

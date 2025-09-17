@@ -17,7 +17,6 @@ export async function request(path, { retry = true, ...options } = {}) {
   // so on any future request, including auth/refresh, the cookies go along automatically
 
   // we wanna avoid manually passing headers like headers: {"Authorization": `Bearer${token}`}
-  
   const res = await fetch(`${API_BASE_URL}${path}`, {
     credentials: "include",
     ...options,
