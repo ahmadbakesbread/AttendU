@@ -1,12 +1,13 @@
 from flask import Flask, request, jsonify, g, make_response
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, desc
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.exc import SQLAlchemyError
 from werkzeug.utils import secure_filename
 from Models import (Base, Teacher, Class, User, 
                     Student, Parent, ConnectionRequest, 
                     student_class_association, 
-                    parent_student_association)
+                    parent_student_association,
+                    Attendance)
 from Helpers import is_valid_email
 from datetime import timedelta
 from flask_cors import CORS
@@ -20,6 +21,8 @@ import os
 import imghdr
 from functools import wraps
 from config import CORS_ORIGIN
+from datetime import date
+import datetime
 
 app = Flask(__name__)
 cfg_name = os.getenv("FLASK_CONFIG", "Production")
@@ -339,7 +342,7 @@ def student_respond_to_teacher_request(request_id):
         g.session.rollback()
         return jsonify({"status": "error", "message": "Something went wrong", "code": 500}), 500
 
-@app.route('/api/students/classes/<int:class_id>/requests', methods=['POST'])
+@app.route('/api/students/classes/requests', methods=['POST'])
 @jwt_required()
 @role_required("student")
 def student_join_class():
@@ -377,29 +380,34 @@ def student_join_class():
         g.session.rollback()
         return jsonify({"status": "error", "message": "Something went wrong", "code": 500}), 500
 
-@app.route('/api/teacher/classes/<int:class_id>/requests/<int:request_id>', methods=['PATCH'])
+@app.route('/api/teachers/classes/<int:class_id>/requests/<int:request_id>', methods=['PATCH'])
 @jwt_required()
 @role_required("teacher")
-def teacher_respond_to_student_request(request_id):
+@jwt_required()
+@role_required("teacher")
+def teacher_respond_to_student_request(class_id, request_id):
     response = (request.get_json() or {}).get('response')
 
     try:
         if not response:
-            return jsonify({"status": "error", "message": "No response provided", "code": 400}), 400 
-        
+            return jsonify({"status": "error", "message": "No response provided", "code": 400}), 400
+
         teacher = g.user
-        connection_request = g.session.query(ConnectionRequest).filter_by(id=request_id, recipient_id=teacher.id).first()
+
+        # ensure the request is to THIS teacher, for THIS class, and is a join_request
+        connection_request = (
+            g.session.query(ConnectionRequest)
+            .filter_by(id=request_id, recipient_id=teacher.id, class_id=class_id, type='join_request')
+            .first()
+        )
         if not connection_request:
             return jsonify({"status": "error", "message": "Request not found", "code": 404}), 404
-        
-        if connection_request.type != 'join_request':
-            return jsonify({"status": "error", "message": "Request not a join request", "code": 404}), 404
-        
+
         if connection_request.status != "pending":
             return jsonify({"status": "error", "message": "Request already processed.", "code": 404}), 404
 
         if response == 'accept':
-            class_ = g.session.query(Class).filter_by(id=connection_request.class_id, teacher_id=teacher.id).first()
+            class_ = g.session.query(Class).filter_by(id=class_id, teacher_id=teacher.id).first()
             if not class_:
                 return jsonify({"status": "error", "message": "Class not found or not belonging to the current user", "code": 404}), 404
 
@@ -679,12 +687,13 @@ def get_students(class_id):
 
         # Transform students list into JSON serializable format
         students_json = [
-            {
-                'name': student.name,
-                'email': student.email,
-            }
-            for student in students
-        ]
+        {
+            'id': student.id,
+            'name': student.name,
+            'email': student.email,
+        }
+    for student in students
+]
 
         return jsonify({"status": "success", "students": students_json, "code": 200}), 200
     
@@ -1260,6 +1269,291 @@ def list_parent_outgoing_family_requests():
             "created_at": getattr(r, "created_at", None),
         }
     return jsonify({"status":"success","requests":[shape(r) for r in q.all()],"code":200}), 200
+
+
+@app.route('/api/classes/<int:class_id>/attendance/today', methods=['GET'])
+@jwt_required()
+@role_required("teacher")
+def attendance_today(class_id):
+    try:
+        # make sure this class belongs to the teacher
+        _class = g.session.query(Class).filter_by(id=class_id, teacher_id=g.user.id).first()
+        if not _class:
+            return jsonify({"status":"error","message":"Class not found or unauthorized","code":404}), 404
+
+        today = date.today()
+        # get all students in this class
+        student_ids = [s.id for s in _class.students]
+
+        # fetch any attendance rows for today for those students
+        rows = (
+            g.session.query(Attendance)
+            .filter(Attendance.class_id == class_id, Attendance.date == today, Attendance.student_id.in_(student_ids))
+            .all()
+        )
+
+        # map student_id -> attended
+        present_map = {r.student_id: bool(r.attended) for r in rows}
+
+        records = [
+            {"student_id": sid, "attended": present_map.get(sid, False)}
+            for sid in student_ids
+        ]
+
+        return jsonify({"status":"success","records": records, "code":200}), 200
+    except SQLAlchemyError:
+        g.session.rollback()
+        return jsonify({"status":"error","message":"An error occurred","code":500}), 500
+
+
+# GET all pending join requests for a class (teacher view)
+@app.route('/api/teachers/classes/<int:class_id>/requests', methods=['GET'])
+@jwt_required()
+@role_required("teacher")
+def list_join_requests_for_class(class_id):
+    try:
+        # ensure this class belongs to the teacher
+        cls = g.session.query(Class).filter_by(id=class_id, teacher_id=g.user.id).first()
+        if not cls:
+            return jsonify({"status":"error","message":"Class not found or unauthorized","code":404}), 404
+
+        status = request.args.get('status', 'pending')
+        q = g.session.query(ConnectionRequest).filter_by(
+            recipient_id=g.user.id,
+            class_id=class_id,
+            type='join_request',
+            status=status
+        )
+
+        items = []
+        for r in q.all():
+            s = g.session.get(Student, r.sender_id)
+            items.append({
+                "request_id": r.id,
+                "student_id": s.id if s else None,
+                "student_name": s.name if s else None,
+                "student_email": s.email if s else None,
+                "created_at": getattr(r, "created_at", None),
+                "status": r.status,
+            })
+
+        return jsonify({"status":"success","requests": items, "code":200}), 200
+    except SQLAlchemyError:
+        g.session.rollback()
+        return jsonify({"status":"error","message":"An error occurred","code":500}), 500
+
+
+@app.route('/api/students/classes/<int:class_id>/meta', methods=['GET'])
+@jwt_required()
+@role_required("student")
+def student_class_meta(class_id):
+    try:
+        cls = g.session.query(Class).filter_by(id=class_id).first()
+        if not cls:
+            return jsonify({"status":"error","message":"Class not found","code":404}), 404
+
+        # ensure the student is enrolled
+        if g.user not in cls.students:
+            return jsonify({"status":"error","message":"Forbidden","code":403}), 403
+
+        teacher = g.session.query(Teacher).filter_by(id=cls.teacher_id).first()
+        return jsonify({
+            "status":"success",
+            "meta":{
+                "class_id": cls.id,
+                "class_name": cls.class_name,
+                "teacher": {
+                    "id": teacher.id if teacher else None,
+                    "name": teacher.name if teacher else None,
+                    "email": teacher.email if teacher else None,
+                }
+            },
+            "code":200
+        }), 200
+    except SQLAlchemyError:
+        g.session.rollback()
+        return jsonify({"status":"error","message":"An error occurred","code":500}), 500
+
+
+@app.route('/api/students/classes/<int:class_id>/attendance/today', methods=['GET'])
+@jwt_required()
+@role_required("student")
+def student_attendance_today(class_id):
+    try:
+        cls = g.session.query(Class).filter_by(id=class_id).first()
+        if not cls:
+            return jsonify({"status":"error","message":"Class not found","code":404}), 404
+        if g.user not in cls.students:
+            return jsonify({"status":"error","message":"Forbidden","code":403}), 403
+
+        today = date.today()
+        row = (
+            g.session.query(Attendance)
+            .filter_by(class_id=class_id, student_id=g.user.id, date=today)
+            .first()
+        )
+        return jsonify({
+            "status":"success",
+            "today":{
+                "date": today.isoformat(),
+                "attended": bool(row.attended) if row else False
+            },
+            "code":200
+        }), 200
+    except SQLAlchemyError:
+        g.session.rollback()
+        return jsonify({"status":"error","message":"An error occurred","code":500}), 500
+
+
+@app.route('/api/students/classes/<int:class_id>/attendance', methods=['GET'])
+@jwt_required()
+@role_required("student")
+def student_attendance_history(class_id):
+    try:
+        cls = g.session.query(Class).filter_by(id=class_id).first()
+        if not cls:
+            return jsonify({"status":"error","message":"Class not found","code":404}), 404
+        if g.user not in cls.students:
+            return jsonify({"status":"error","message":"Forbidden","code":403}), 403
+
+        q = g.session.query(Attendance).filter_by(class_id=class_id, student_id=g.user.id)
+
+        date_from = request.args.get('from')
+        date_to   = request.args.get('to')
+        limit     = int(request.args.get('limit', 30))
+
+        if date_from:
+            df = datetime.fromisoformat(date_from).date()
+            q = q.filter(Attendance.date >= df)
+        if date_to:
+            dt = datetime.fromisoformat(date_to).date()
+            q = q.filter(Attendance.date <= dt)
+
+        rows = q.order_by(desc(Attendance.date)).limit(limit).all()
+
+        history = [{"date": r.date.isoformat(), "attended": bool(r.attended)} for r in rows]
+
+        return jsonify({"status":"success","history":history,"code":200}), 200
+    except SQLAlchemyError:
+        g.session.rollback()
+        return jsonify({"status":"error","message":"An error occurred","code":500}), 500
+
+@app.route('/api/parents/children/<int:student_id>/classes', methods=['GET'])
+@jwt_required()
+@role_required("parent")
+def parent_child_classes(student_id):
+    try:
+        # ensure this student is their child
+        child = g.session.query(Student).filter_by(id=student_id).first()
+        if not child or child not in g.user.children:
+            return jsonify({"status":"error","message":"Not your child or not found","code":404}), 404
+
+        out = []
+        for cls in child.classes:
+            t = g.session.query(Teacher).get(cls.teacher_id)
+            out.append({
+                "id": cls.id,
+                "name": cls.class_name,
+                "teacher_name": t.name if t else None,
+                "teacher_email": t.email if t else None,
+            })
+        return jsonify({"status":"success","classes": out, "code":200}), 200
+    except SQLAlchemyError:
+        g.session.rollback()
+        return jsonify({"status":"error","message":"An error occurred","code":500}), 500
+
+@app.route('/api/parents/children/<int:student_id>/classes/<int:class_id>/meta', methods=['GET'])
+@jwt_required()
+@role_required("parent")
+def parent_child_class_meta(student_id, class_id):
+    try:
+        child = g.session.query(Student).filter_by(id=student_id).first()
+        if not child or child not in g.user.children:
+            return jsonify({"status":"error","message":"Not your child or not found","code":404}), 404
+
+        cls = g.session.query(Class).filter_by(id=class_id).first()
+        if not cls or cls not in child.classes:
+            return jsonify({"status":"error","message":"Class not found for this child","code":404}), 404
+
+        t = g.session.query(Teacher).get(cls.teacher_id)
+        return jsonify({
+            "status":"success",
+            "meta":{
+                "class_id": cls.id,
+                "class_name": cls.class_name,
+                "teacher": {
+                    "id": t.id if t else None,
+                    "name": t.name if t else None,
+                    "email": t.email if t else None,
+                }
+            },
+            "code":200
+        }), 200
+    except SQLAlchemyError:
+        g.session.rollback()
+        return jsonify({"status":"error","message":"An error occurred","code":500}), 500
+
+@app.route('/api/parents/children/<int:student_id>/classes/<int:class_id>/attendance/today', methods=['GET'])
+@jwt_required()
+@role_required("parent")
+def parent_child_attendance_today(student_id, class_id):
+    try:
+        child = g.session.query(Student).filter_by(id=student_id).first()
+        if not child or child not in g.user.children:
+            return jsonify({"status":"error","message":"Not your child or not found","code":404}), 404
+
+        cls = g.session.query(Class).filter_by(id=class_id).first()
+        if not cls or cls not in child.classes:
+            return jsonify({"status":"error","message":"Class not found for this child","code":404}), 404
+
+        today = date.today()
+        row = (
+            g.session.query(Attendance)
+            .filter_by(class_id=class_id, student_id=student_id, date=today)
+            .first()
+        )
+        return jsonify({
+            "status":"success",
+            "today":{"date": today.isoformat(), "attended": bool(row.attended) if row else False},
+            "code":200
+        }), 200
+    except SQLAlchemyError:
+        g.session.rollback()
+        return jsonify({"status":"error","message":"An error occurred","code":500}), 500
+
+@app.route('/api/parents/children/<int:student_id>/classes/<int:class_id>/attendance', methods=['GET'])
+@jwt_required()
+@role_required("parent")
+def parent_child_attendance_history(student_id, class_id):
+    try:
+        child = g.session.query(Student).filter_by(id=student_id).first()
+        if not child or child not in g.user.children:
+            return jsonify({"status":"error","message":"Not your child or not found","code":404}), 404
+
+        cls = g.session.query(Class).filter_by(id=class_id).first()
+        if not cls or cls not in child.classes:
+            return jsonify({"status":"error","message":"Class not found for this child","code":404}), 404
+
+        q = g.session.query(Attendance).filter_by(class_id=class_id, student_id=student_id)
+
+        date_from = request.args.get('from')
+        date_to   = request.args.get('to')
+        limit     = int(request.args.get('limit', 30))
+
+        if date_from:
+            df = datetime.fromisoformat(date_from).date()
+            q = q.filter(Attendance.date >= df)
+        if date_to:
+            dt = datetime.fromisoformat(date_to).date()
+            q = q.filter(Attendance.date <= dt)
+
+        rows = q.order_by(desc(Attendance.date)).limit(limit).all()
+        history = [{"date": r.date.isoformat(), "attended": bool(r.attended)} for r in rows]
+
+        return jsonify({"status":"success","history":history,"code":200}), 200
+    except SQLAlchemyError:
+        g.session.rollback()
+        return jsonify({"status":"error","message":"An error occurred","code":500}), 500
 
 
 ##### MAIN #####

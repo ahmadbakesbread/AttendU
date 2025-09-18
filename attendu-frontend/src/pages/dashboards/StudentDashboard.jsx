@@ -7,9 +7,11 @@ import {
   studentRespondToParentRequest, // PATCH /api/students/family/requests/:id
   studentRespondToClassInvite,   // PATCH /api/students/classes/requests/:id
   logout,
+  studentSendParentRequest
 } from "../../api.js";
 import { useAuth } from "../../AuthContext.jsx";
 import { useNavigate, Link } from "react-router-dom";
+import {ActionButton} from "../../components/ActionButton.jsx";
 
 export default function StudentDashboard() {
   const [classes, setClasses] = useState([]);
@@ -19,6 +21,10 @@ export default function StudentDashboard() {
   const [msg, setMsg] = useState("");
   const [loading, setLoading] = useState(true);
   const { setAuthed, setUser } = useAuth();
+  const [joinCode, setJoinCode] = useState("");
+  const [joining, setJoining] = useState(false);
+  const [parentEmail, setParentEmail] = useState("");
+  const [invitingParent, setInvitingParent] = useState(false);
   const navigate = useNavigate();
 
   async function load() {
@@ -105,16 +111,56 @@ export default function StudentDashboard() {
     }
   }
 
+  async function handleJoinByCode(e) {
+  e.preventDefault();
+  const code = joinCode.trim();
+  if (!code) return setMsg("Please enter a class code.");
+  setJoining(true);
+  setMsg("");
+  try {
+    const api = await import("../../api.js");
+    if (!api.studentJoinClassByCode) {
+      setMsg("Joining by code isn’t enabled in this build.");
+      return;
+    }
+    await api.studentJoinClassByCode(code);
+    setJoinCode("");
+    setMsg("Join request sent. You’ll see the class after the teacher accepts.");
+
+    // refresh pending invites since we may implement auto-accept flows later...
+    try {
+      const clsReqs = await getStudentClassInvites("pending");
+      setClassInvites(clsReqs?.requests ?? []);
+    } catch {}
+  } catch (err) {
+    setMsg(err?.message || "Failed to send join request.");
+  } finally {
+    setJoining(false);
+  }
+}
+
+  async function handleInviteParent(e) {
+    e.preventDefault();
+    const email = parentEmail.trim();
+    if (!email) return setMsg("Please enter a parent email.");
+    setInvitingParent(true);
+    setMsg("");
+    try {
+      await studentSendParentRequest(email);
+      setParentEmail("");
+      setMsg("Request sent to parent.");
+      // Optional: in the future you could fetch an “outgoing” list if you add a backend for it.
+    } catch (err) {
+      setMsg(err?.message || "Failed to send parent request.");
+    } finally {
+      setInvitingParent(false);
+    }
+  }
+
   const Card = ({ children, accent = "#124559", border = "#ffffff" }) => (
     <div style={{ background: "#051E27", border: `1px solid ${border}`, borderLeft: `6px solid ${accent}`, borderRadius: 10, padding: "12px 14px" }}>
       {children}
     </div>
-  );
-
-  const Button = ({ onClick, children }) => (
-    <button onClick={onClick} style={{ padding: "6px 10px", borderRadius: 6, border: "1px solid #eee", background: "transparent", color: "#eee", cursor: "pointer" }}>
-      {children}
-    </button>
   );
 
   return (
@@ -152,6 +198,27 @@ export default function StudentDashboard() {
               )}
             </section>
 
+            {/* Connect a Parent */}
+            <section>
+              <h4 style={{ margin: "12px 0 8px" }}>Connect a Parent</h4>
+              <form
+                onSubmit={handleInviteParent}
+                style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 8 }}
+              >
+                <input
+                  className="input"
+                  type="email"
+                  placeholder="parent@email.com"
+                  value={parentEmail}
+                  onChange={(e) => setParentEmail(e.target.value)}
+                />
+                <button type="submit" disabled={invitingParent}>Invite</button>
+              </form>
+              <p style={{ opacity: 0.8, marginTop: 6 }}>
+                We’ll send a connection request to this email. They’ll see it on their dashboard.
+              </p>
+            </section>
+
             {/* Family Requests */}
             <section>
               <h4 style={{ margin: "12px 0 8px" }}>Family Requests</h4>
@@ -167,8 +234,8 @@ export default function StudentDashboard() {
                           <div style={{ fontSize: 12, opacity: 0.8 }}>{r.from_parent_email}</div>
                         </div>
                         <div style={{ display: "flex", gap: 8 }}>
-                          <Button onClick={() => handleFamilyReq(r.request_id, "reject")}>✖️ No</Button>
-                          <Button onClick={() => handleFamilyReq(r.request_id, "accept")}>✔️ Yes</Button>
+                          <ActionButton variant="danger" onClick={() => handleFamilyReq(r.request_id, "reject")}>✖ Reject</ActionButton>
+                          <ActionButton variant="success" onClick={() => handleFamilyReq(r.request_id, "accept")}>✔ Accept</ActionButton>
                         </div>
                       </div>
                     </Card>
@@ -194,14 +261,32 @@ export default function StudentDashboard() {
                           </div>
                         </div>
                         <div style={{ display: "flex", gap: 8 }}>
-                          <Button onClick={() => handleClassInvite(r.request_id, "reject")}>No</Button>
-                          <Button onClick={() => handleClassInvite(r.request_id, "accept")}>Yes</Button>
+                          <ActionButton variant="danger" onClick={() => handleClassInvite(r.request_id, "reject")}>✖ Reject</ActionButton>
+                          <ActionButton variant="success" onClick={() => handleClassInvite(r.request_id, "accept")}>✔ Accept</ActionButton>
                         </div>
                       </div>
                     </Card>
                   ))}
                 </div>
               )}
+            </section>
+
+            {/* Join a Class */}
+            <section>
+              <h4 style={{ margin: "12px 0 8px" }}>Join a Class</h4>
+              <form onSubmit={handleJoinByCode} style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 8 }}>
+                <input
+                  className="input"
+                  type="text"
+                  placeholder="Enter class code"
+                  value={joinCode}
+                  onChange={(e) => setJoinCode(e.target.value)}
+                />
+                <button type="submit" disabled={joining}>Request</button>
+              </form>
+              <p style={{ opacity: 0.8, marginTop: 6 }}>
+                Ask your teacher for the code and paste it here to request access.
+              </p>
             </section>
 
             {/* My Classes */}

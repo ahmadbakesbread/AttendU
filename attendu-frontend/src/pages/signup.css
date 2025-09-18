@@ -88,6 +88,30 @@
     z-index: 0;
   }
 
+  .signup-link {
+  color: #3B82F6;          /* nice blue */
+  font-weight: 500;
+  text-decoration: none;
+  transition: color 0.2s ease;
+}
+
+.signup-link:hover {
+  color: #2563EB;          /* darker blue on hover */
+  text-decoration: underline;
+}
+
+  .back-to-welcome {
+  color: #aaaaaa;          /* nice blue */
+  font-weight: 500;
+  text-decoration: none;
+  transition: color 0.2s ease;
+}
+
+.back-to-welcome:hover {
+  color: #e4e4e4;          /* darker blue on hover */
+  text-decoration: underline;
+}
+
 /* spacing helpers */
 .mt-1 { margin-top: 8px; }
 .mt-2 { margin-top: 16px; }

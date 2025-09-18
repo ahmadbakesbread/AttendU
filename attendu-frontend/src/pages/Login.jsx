@@ -1,8 +1,8 @@
 // src/pages/Login.jsx
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import "./signup.css";
 import { login, getMe } from "../api";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 import { useAuth } from "../AuthContext.jsx";
 
 // functional component returns UI, dashboard
@@ -12,7 +12,13 @@ export default function Login() {
   const [input, setInput] = useState({});
   const [errors, setErrors] = useState({});
   const navigate = useNavigate();                 // just a simple redirect-er
-  const { setAuthed, setUser } = useAuth();                // from AuthContext, updates authentication status (logged in/out)
+  const { setAuthed, setUser, user } = useAuth();                // from AuthContext, updates authentication status (logged in/out)
+
+  useEffect(() => {
+    if (user?.role) {
+      navigate("/dashboard", { replace: true });
+    }
+  }, [user, navigate]);
 
   // this runs whenever the user types in a field
   const handleChange = (e) =>
@@ -44,6 +50,10 @@ export default function Login() {
   return ( 
     <div className="page">
       <div className="card">
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+          <Link to="/" className="back-to-welcome">← Back to Welcome</Link>
+        </div>
+
         <form onSubmit={handleSubmit}> {/* call handle submit when you log in */}
           <h3 className="title">Log In</h3>
 
@@ -76,6 +86,14 @@ export default function Login() {
           {/* submits form and triggers handle submit */}
           <input className="submit-button" type="submit" value="Log in" />  
         </form>
+
+        {/* footer link to signup */}
+        <p style={{ marginTop: 12, textAlign: "center" }}>
+          Don’t have an account?{" "}
+          <Link to="/signup/decision" className="signup-link">
+            Sign up here
+          </Link>
+        </p>
       </div>
     </div>
   );

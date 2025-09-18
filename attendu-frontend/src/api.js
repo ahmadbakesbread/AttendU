@@ -74,3 +74,76 @@ export const parentRespondToStudentRequest = (requestId, response) =>
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ response }),
   });
+
+export const getClassCode = (class_id) =>
+  get(`/api/classes/${class_id}/code`);
+
+export const removeStudentFromClass = (class_id, student_id) =>
+  request(`/api/teachers/classes/${class_id}/requests/${student_id}`, { method: "DELETE" });
+
+// OPTIONAL (attendance today) — add only if you add the backend below
+export const getTodayAttendanceForClass = (class_id) =>
+  get(`/api/classes/${class_id}/attendance/today`);
+
+export const teacherInviteStudent = (class_id, email) =>
+  request(`/api/teachers/classes/${class_id}/requests`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email }),
+  });
+
+// JOIN: student -> class (by class code)
+// Backend route requires a class_id in the path but ignores it; 0 is fine.
+export const studentJoinClassByCode = (code) =>
+  request(`/api/students/classes/requests`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ code }),
+  });
+
+
+export const getTeacherClassJoinRequests = (class_id, status = "pending") =>
+  request(`/api/teachers/classes/${class_id}/requests?status=${encodeURIComponent(status)}`, {
+    method: "GET",
+  });
+
+export const teacherRespondToJoinRequest = (class_id, request_id, response) =>
+  request(`/api/teachers/classes/${class_id}/requests/${request_id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ response }),
+  });
+
+  export const getStudentClassMeta = (class_id) =>
+  request(`/api/students/classes/${class_id}/meta`, { method: "GET" });
+
+export const getStudentAttendanceToday = (class_id) =>
+  request(`/api/students/classes/${class_id}/attendance/today`, { method: "GET" });
+
+export const getStudentAttendanceHistory = (class_id, params = {}) => {
+  const qs = new URLSearchParams(params).toString();
+  const url = qs ? `/api/students/classes/${class_id}/attendance?${qs}` 
+                 : `/api/students/classes/${class_id}/attendance`;
+  return request(url, { method: "GET" });
+};
+
+// Parent -> child classes
+export const getChildClasses = (student_id) =>
+  request(`/api/parents/children/${student_id}/classes`, { method: "GET" });
+
+// Parent -> child class meta / attendance
+export const getParentChildClassMeta = (student_id, class_id) =>
+  request(`/api/parents/children/${student_id}/classes/${class_id}/meta`, { method: "GET" });
+
+export const getParentChildAttendanceToday = (student_id, class_id) =>
+  request(`/api/parents/children/${student_id}/classes/${class_id}/attendance/today`, { method: "GET" });
+
+export const getParentChildAttendanceHistory = (student_id, class_id, params = {}) => {
+  const qs = new URLSearchParams(params).toString();
+  const url = qs
+    ? `/api/parents/children/${student_id}/classes/${class_id}/attendance?${qs}`
+    : `/api/parents/children/${student_id}/classes/${class_id}/attendance`;
+  return request(url, { method: "GET" });
+};
+export const studentSendParentRequest = (email) =>
+  postJSON("/api/students/family/requests/", { email });

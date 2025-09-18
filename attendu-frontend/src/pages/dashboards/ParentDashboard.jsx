@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import {
   logout,
   getMyChildren,
@@ -9,6 +10,7 @@ import {
 } from "../../api.js";
 import { useAuth } from "../../AuthContext.jsx";
 import { useNavigate } from "react-router-dom";
+import { ActionButton } from "../../components/ActionButton.jsx";
 
 export default function ParentDashboard() {
   const [children, setChildren] = useState([]);
@@ -118,21 +120,32 @@ export default function ParentDashboard() {
               ) : (
                 <ul style={{ listStyle: "none", padding: 0, display: "grid", gap: 8 }}>
                   {children.map((c) => (
-                    <li
-                      key={c.id}
-                      style={{
-                        background: "#061B20",
-                        border: "1px solid #ffffff",
-                        borderRadius: 10,
-                        padding: "12px 14px",
-                      }}
-                    >
-                      <div style={{ display: "flex", justifyContent: "space-between" }}>
-                        <span style={{ fontSize: 16 }}>{c.name}</span>
-                        <span style={{ opacity: 0.7, fontSize: 12 }}>ID: {c.id}</span>
-                      </div>
-                    </li>
-                  ))}
+                      <Link key={c.id} to={`/parent/children/${c.id}`} style={{ textDecoration: "none", color: "inherit" }}>
+                        <li
+                          key={c.id}
+                          style={{
+                            background: "#061B20",
+                            border: "1px solid #ffffff",
+                            borderRadius: 10,
+                            padding: "12px 14px",
+                            cursor: "pointer",
+                            transition: "background 0.2s",
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.background = "#0A2C36"; // hover color
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.background = "#061B20"; // reset
+                          }}
+                          onClick={() => navigate(`/parent/children/${c.id}/classes`)} // still clickable
+                        >
+                          <div style={{ display: "flex", justifyContent: "space-between" }}>
+                            <span style={{ fontSize: 16 }}>{c.name}</span>
+                            <span style={{ opacity: 0.7, fontSize: 12 }}>ID: {c.id}</span>
+                          </div>
+                        </li>
+                      </Link>
+                    ))}
                 </ul>
               )}
             </section>
@@ -173,9 +186,13 @@ export default function ParentDashboard() {
                             <div style={{ fontSize: 12, opacity: 0.8 }}>wants to connect as your child</div>
                           </div>
                           <div style={{ display: "flex", gap: 8 }}>
-                            <button onClick={() => handleIncoming(r.request_id, "reject")}>✖</button>
-                            <button onClick={() => handleIncoming(r.request_id, "accept")}>✔</button>
-                          </div>
+                            <ActionButton variant="danger" onClick={() => handleIncoming(r.request_id, "reject")}>
+                            ✖ Reject
+                            </ActionButton>
+                            <ActionButton variant="success" onClick={() => handleIncoming(r.request_id, "accept")}>
+                            ✔ Accept                            
+                            </ActionButton>
+                        </div>
                         </div>
                       </Card>
                     ))}

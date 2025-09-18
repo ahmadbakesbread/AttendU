@@ -6,11 +6,10 @@ import SignupDecision from "./pages/SignupDecision.jsx";
 import SignupStudent from "./pages/SignupStudent.jsx";
 import SignupTeacher from "./pages/SignupTeacher.jsx";
 import SignupParent from "./pages/SignupParent.jsx";
-import RoleDashboardRouter from "./pages/RoleDashboardRouter.jsx";
-//import ClassPage from "./pages/ClassPage.jsx";
-//import ParentChildren from "./pages/ParentChildren.jsx";
-//import ParentChildClasses from "./pages/ParentChildClasses.jsx";
-//import ParentChildClassPage from "./pages/ParentChildClassPage.jsx";
+import RoleDashboardRouter from "./pages/dashboards/RoleDashboardRouter.jsx";
+import RoleClassRouter from "./pages/class_dashboards/RoleClassRouter.jsx";
+import ChildClasses from "./pages/parent/ChildClasses.jsx";
+import ParentChildClassDashboard from "./pages/parent/ParentChildClassDashboard.jsx";
 
 // custom route guards to decide who can visit what.
 import { RequireAuth, PublicOnly } from "./routes.jsx";
@@ -32,6 +31,11 @@ export default function App() {
       {/* PROTECTED ROUTES - requires authentication (from routes.jsx)*/}
       <Route element={<RequireAuth />}>
         <Route path="/dashboard" element={<RoleDashboardRouter />} />
+        <Route path="/classes/:id" element={<RoleClassRouter />} />
+
+        {/* Parent deep links */}
+        <Route path="/parent/children/:childId" element={<ChildClasses />} />
+        <Route path="/parent/children/:childId/classes/:classId" element={<ParentChildClassDashboard />} />
       </Route>
 
       {/* FALLBACK ROUTE... handles any unknown URL, redirect to / */}

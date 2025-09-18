@@ -1,9 +1,9 @@
 import React from "react";
 import { Navigate } from "react-router-dom";
-import { useAuth } from "../AuthContext.jsx";
-import TeacherDashboard from "./dashboards/TeacherDashboard.jsx";
-import StudentDashboard from "./dashboards/StudentDashboard.jsx";
-import ParentDashboard from "./dashboards/ParentDashboard.jsx";
+import { useAuth } from "../../AuthContext.jsx";
+import TeacherDashboard from "./TeacherDashboard.jsx";
+import StudentDashboard from "./StudentDashboard.jsx";
+import ParentDashboard from "./ParentDashboard.jsx";
 
 export default function RoleDashboardRouter() {
   const { user } = useAuth();
