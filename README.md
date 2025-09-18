@@ -1,45 +1,56 @@
-# 🎓 AttendU 📸
+# attendu
 
-Welcome to **AttendU** - where attendance meets innovation! Dive into a world where facial recognition does the roll call for you. 🚀
+**attendu** is a facial recognition–based attendance system. it provides dedicated portals for teachers, parents, and students, making attendance tracking easier and more transparent.
 
-## 🌟 Overview
+---
 
-**AttendU** is a state-of-the-art facial recognition attendance system. With a dedicated website for teachers, parents, and students, we ensure everyone is on the same page. Just show up, smile, and you're marked present! 🤩
+## demo video
 
-## 📂 Repository Structure
+[![attendu demo](https://img.youtube.com/vi/1THMbqONLHw/0.jpg)](https://www.youtube.com/watch?v=1THMbqONLHw)  
 
-### Backend 🖥️
+---
+## overview
 
-- [app.py](https://github.com/ahmadbakesbread/AttendU/blob/main/app.py): The heart of our backend, driving the application.
-- [Models.py](https://github.com/ahmadbakesbread/AttendU/blob/main/Models.py): Data models for the application.
-- [Helpers.py](https://github.com/ahmadbakesbread/AttendU/blob/main/Helpers.py): Utility functions to assist the main application.
-- [DatabaseManager.py](https://github.com/ahmadbakesbread/AttendU/blob/main/DatabaseManager.py): Manages all database interactions.
+- students are marked present automatically using facial recognition  
+- teachers can manage classes, attendance, and invites  
+- parents can stay connected to their children’s progress 
 
-### Frontend 🌐
+---
 
-Dive into our user-friendly interface:
+## repo structure
 
-- [App.js](https://github.com/ahmadbakesbread/AttendU/blob/main/attendu-frontend/src/App.js): The main React component.
-- [welcome.jsx](https://github.com/ahmadbakesbread/AttendU/blob/main/attendu-frontend/src/welcome.jsx): A warm welcome to our users.
-- [login.jsx](https://github.com/ahmadbakesbread/AttendU/blob/main/attendu-frontend/src/login.jsx): For users to securely log in.
-- [signup.jsx](https://github.com/ahmadbakesbread/AttendU/blob/main/attendu-frontend/src/signup.jsx): New to AttendU? Sign up here!
+### backend
 
-### Tests 🧪
+- **app.py** – entry point for the backend application  
+- **Models.py** – database models  
+- **Helpers.py** – utility functions
 
-We believe in robust software. Check out our [tests](https://github.com/ahmadbakesbread/AttendU/tree/main/tests) to see how we ensure everything runs smoothly.
+### frontend
 
-## 🚧 Under Development
+- **attendu-frontend/src/App.jsx** – main react component
+- **attendu-frontend/src/api.js** – bridging frontend + backend 
+- **attendu-frontend/src/pages/welcome.jsx** – welcome page 
+- **attendu-frontend/src/pages/login.jsx** – login screen
+- additional dashboards/role-based pages are under `src/pages/` 
 
-**AttendU** is a growing project. We're always adding features and refining the experience. Stay tuned for updates, and if you're feeling adventurous, contribute to our code! 🛠️
+### tests
 
-## 🤝 Contribute
+the `tests/` folder contains automated tests for backend functionality  
 
-Fascinated by **AttendU**? Dive into the code, suggest features, or fix a bug. We welcome all contributions with open arms! 🌍
+---
 
-## 📝 Feedback
+## development status
 
-Your thoughts matter! Found a bug or have a suggestion? Raise an issue. We're all ears! 📬
+attendu is under active development. new features are added regularly, and both the frontend and backend are being refined.  
 
-## 🎉 Thanks for Visiting!
+---
 
-Join us in redefining attendance. Let's make roll calls fun and efficient together! 🎈
+## contributing
+
+contributions are welcome. you can suggest features, report bugs, or submit pull requests.  
+
+---
+
+## feedback
+
+issues and feedback can be shared through the repository’s issue tracker.  
