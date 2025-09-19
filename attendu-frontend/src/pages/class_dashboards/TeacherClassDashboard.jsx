@@ -175,9 +175,13 @@ async function handleRequest(requestId, decision) {
             <Link to="/dashboard" className="link">← Back</Link>
             <h3 className="title" style={{ margin: 0 }}>Class #{classId}</h3>
           </div>
-          <button onClick={handleLogout}>Log out</button>
-        </div>
-
+          <div style={{ display: "flex", gap: 8 }}>
+              <a className="button" href={`/classes/${classId}/kiosk`} target="_blank" rel="noreferrer">
+                Open Kiosk
+              </a>
+              <button onClick={handleLogout}>Log out</button>
+            </div>
+          </div>
         {msg && <p>{msg}</p>}
 
         {loading ? (

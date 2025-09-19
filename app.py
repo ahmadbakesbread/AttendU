@@ -8,7 +8,8 @@ from Models import (Base, Teacher, Class, User,
                     student_class_association, 
                     parent_student_association,
                     Attendance)
-from Helpers import is_valid_email
+from Helpers import (is_valid_email, bytes_to_encoding, face_distance,
+                    FACE_ENABLED)
 from datetime import timedelta
 from flask_cors import CORS
 from flask_jwt_extended import (
@@ -22,7 +23,8 @@ import imghdr
 from functools import wraps
 from config import CORS_ORIGIN
 from datetime import date
-import datetime
+import numpy as np
+from sqlalchemy import and_
 
 app = Flask(__name__)
 cfg_name = os.getenv("FLASK_CONFIG", "Production")
@@ -383,8 +385,6 @@ def student_join_class():
 @app.route('/api/teachers/classes/<int:class_id>/requests/<int:request_id>', methods=['PATCH'])
 @jwt_required()
 @role_required("teacher")
-@jwt_required()
-@role_required("teacher")
 def teacher_respond_to_student_request(class_id, request_id):
     response = (request.get_json() or {}).get('response')
 
@@ -488,7 +488,7 @@ def student_send_parent_request():
         recipient = g.session.query(Parent).filter_by(email=recipient_email).first()
         if not recipient:
             return jsonify({"status": "error", "message": "Parent not found", "code": 404}), 404
-        if g.session.query(parent_student_association).filter_by(parent_id=student.id, student_id=recipient.id).first() is not None:
+        if g.session.query(parent_student_association).filter_by(parent_id=recipient.id, student_id=student.id).first() is not None:
             return jsonify({"status": "error", "message": "The user is already listed as a parent", "code": 400}), 400
 
         # Check if there is any existing request that is the exact same.
@@ -1423,10 +1423,10 @@ def student_attendance_history(class_id):
         limit     = int(request.args.get('limit', 30))
 
         if date_from:
-            df = datetime.fromisoformat(date_from).date()
+            df = date.fromisoformat(date_from).date()
             q = q.filter(Attendance.date >= df)
         if date_to:
-            dt = datetime.fromisoformat(date_to).date()
+            dt = date.fromisoformat(date_to).date()
             q = q.filter(Attendance.date <= dt)
 
         rows = q.order_by(desc(Attendance.date)).limit(limit).all()
@@ -1541,10 +1541,10 @@ def parent_child_attendance_history(student_id, class_id):
         limit     = int(request.args.get('limit', 30))
 
         if date_from:
-            df = datetime.fromisoformat(date_from).date()
+            df = date.fromisoformat(date_from).date()
             q = q.filter(Attendance.date >= df)
         if date_to:
-            dt = datetime.fromisoformat(date_to).date()
+            dt = date.fromisoformat(date_to).date()
             q = q.filter(Attendance.date <= dt)
 
         rows = q.order_by(desc(Attendance.date)).limit(limit).all()
@@ -1556,8 +1556,81 @@ def parent_child_attendance_history(student_id, class_id):
         return jsonify({"status":"error","message":"An error occurred","code":500}), 500
 
 
+@app.route('/api/classes/<int:class_id>/attendance/mark', methods=['POST'])
+@jwt_required()
+@role_required("teacher")
+def mark_attendance_from_frame(class_id):
+    try:
+        # Ensure class belongs to this teacher
+        cls = g.session.query(Class).filter_by(id=class_id, teacher_id=g.user.id).first()
+        if not cls:
+            return jsonify({"status":"error","message":"Class not found or unauthorized","code":404}), 404
+
+        if not FACE_ENABLED:
+            return jsonify({"status":"error","message":"Face recognition disabled on server","code":503}), 503
+
+        if 'frame' not in request.files:
+            return jsonify({"status":"error","message":"No frame provided","code":400}), 400
+
+        raw = request.files['frame'].read()
+        probe = bytes_to_encoding(raw)
+        if probe is None:
+            # No face / multiple faces / decoding failure
+            return jsonify({"status":"error","message":"No single face detected","code":422}), 422
+
+        # Candidates = enrolled students with vectors
+        enrolled = [(s.id, s.name, s.email, s.face_vector) for s in cls.students if s.face_vector is not None]
+        if not enrolled:
+            return jsonify({"status":"error","message":"No enrolled students have embeddings on file","code":409}), 409
+
+        # Find best match by Euclidean distance (lower = better)
+        best = None
+        best_dist = 1e9
+        for sid, sname, semail, vec in enrolled:
+            d = face_distance(probe, vec)
+            if d < best_dist:
+                best_dist = d
+                best = (sid, sname, semail)
+
+        # Threshold — tune to your data. 0.6 is the common starting point for face_recognition.
+        THRESH = 0.60
+        if best is None or best_dist > THRESH:
+            return jsonify({"status":"error","message":"No confident match","distance":best_dist,"code":404}), 404
+
+        sid, sname, semail = best
+
+        # Upsert attendance for today
+        today = date.today()
+        row = (g.session.query(Attendance)
+               .filter(and_(Attendance.date == today,
+                            Attendance.class_id == class_id,
+                            Attendance.student_id == sid))
+               .first())
+        already = False
+        if row:
+            already = bool(row.attended)
+            row.attended = True
+        else:
+            g.session.add(Attendance(date=today, attended=True, student_id=sid, class_id=class_id))
+        g.session.commit()
+
+        return jsonify({
+            "status":"success",
+            "matched_student": {"id": sid, "name": sname, "email": semail},
+            "distance": best_dist,
+            "threshold": THRESH,
+            "already_marked": already,
+            "code":200
+        }), 200
+
+    except SQLAlchemyError as e:
+        g.session.rollback()
+        app.logger.error(f"SQLAlchemyError: {e}")
+        return jsonify({"status":"error","message":"DB error","code":500}), 500
+
+
 ##### MAIN #####
 
 if __name__ == '__main__':
     Base.metadata.create_all(bind=engine)
-    app.run(debug=True)
+    app.run(host="0.0.0.0", port=5000, debug=True)

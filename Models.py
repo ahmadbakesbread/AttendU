@@ -1,7 +1,7 @@
 from sqlalchemy import Column, Integer, String, ForeignKey, LargeBinary
 from sqlalchemy.orm import relationship, Session
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.sql.schema import Table
+from sqlalchemy.sql.schema import Table, UniqueConstraint
 from sqlalchemy.sql.sqltypes import Date, Boolean, PickleType
 from sqlalchemy.exc import SQLAlchemyError
 from flask_login import UserMixin
@@ -138,6 +138,8 @@ class Attendance(Base):
 
     student = relationship('Student', back_populates='attendances')
     _class = relationship('Class', back_populates='attendances')
+
+    __table_args__ = (UniqueConstraint('date', 'student_id', 'class_id', name='uq_attendance_day_student_class'),)
 
 
 class Teacher(User):
