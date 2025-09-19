@@ -147,3 +147,12 @@ export const getParentChildAttendanceHistory = (student_id, class_id, params = {
 };
 export const studentSendParentRequest = (email) =>
   postJSON("/api/students/family/requests/", { email });
+
+export async function markAttendanceFromFrame(classId, blob) {
+  const form = new FormData();
+  form.append("frame", blob, "frame.jpg");
+  return request(`spi/classes/${classId}/attendance/mark`, {
+    method: "POST",
+    body: form,
+  });
+}
