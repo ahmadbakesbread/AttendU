@@ -1,14 +1,17 @@
 // src/pages/kiosk/Kiosk.jsx
 import React, { useEffect, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { useAuth } from "../AuthContext.jsx";
-import { markAttendanceFromFrame } from "../api.js";
+import { useAuth } from "../../AuthContext.jsx";           // <-- path fix
+import { markAttendanceFromFrame } from "../../api.js";    // <-- path fix
 
 export default function Kiosk() {
   const { id } = useParams();
   const classId = Number(id);
   const navigate = useNavigate();
   const { user } = useAuth();
+
+  const isStartingRef = useRef(false);
+  const playPromiseRef = useRef(null);
 
   useEffect(() => {
     if (user?.role && user.role !== "teacher") {
@@ -21,12 +24,12 @@ export default function Kiosk() {
   const [attMsg, setAttMsg] = useState("");
   const [recentMarks, setRecentMarks] = useState([]);
   const [scanState, setScanState] = useState({ state: "idle", text: "Idle" });
-  const [isFs, setIsFs] = useState(false); // fullscreen state
+  const [isFs, setIsFs] = useState(false);
 
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
   const pageRef = useRef(null);
-  const wrapRef = useRef(null); // wrapper around the video
+  const wrapRef = useRef(null);
   const streamRef = useRef(null);
   const timerRef = useRef(null);
   const lastMarkRef = useRef(new Map());
@@ -54,36 +57,90 @@ export default function Kiosk() {
     navigator.vibrate?.(80);
   }
 
+  function isActuallyPlaying(v) {
+    return v && v.readyState > v.HAVE_CURRENT_DATA && !v.paused && !v.ended;
+  }
+
+  async function safePlay(v) {
+    if (!v) return;
+    if (playPromiseRef.current) {
+      await playPromiseRef.current.catch(() => {});
+    }
+    if (!isActuallyPlaying(v)) {
+      try {
+        playPromiseRef.current = v.play();
+        await playPromiseRef.current;
+      } catch {
+        // ignore user-gesture/autoplay quirks
+      } finally {
+        playPromiseRef.current = null;
+      }
+    }
+  }
+
   async function startAttendance() {
-    setAttMsg("");
+    if (isStartingRef.current || attRunning) return;
+    isStartingRef.current = true;
+
     try {
+      // clean prior stream (if any)
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(t => t.stop());
+        streamRef.current = null;
+      }
+
+      const v = videoRef.current;
+      if (!v) throw new Error("Video not ready");
+      v.muted = true;
+      v.playsInline = true;
+
+      try { v.pause(); } catch {}
+      v.srcObject = null;
+
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "user", width: { ideal: 1920 }, height: { ideal: 1080 } },
-        audio: false,
+        video: { facingMode: "environment" },   // rear camera when available
+        audio: false
       });
       streamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        await videoRef.current.play();
-      }
+
+      v.srcObject = stream;
+
+      // wait for metadata before starting playback (prevents the warning)
+      await new Promise(res => {
+        if (v.readyState >= 1) res();
+        else v.onloadedmetadata = () => res();
+      });
+
+      await safePlay(v);
+
       setAttRunning(true);
-      setScanState({ state: "scanning", text: "Scanning…" });
-      timerRef.current = setInterval(captureAndSend, 1800);
+      timerRef.current = setInterval(captureAndSend, 2000);
     } catch (e) {
-      setAttMsg(e?.message || "Failed to open camera.");
-      setScanState({ state: "error", text: "Camera error" });
+      setAttMsg(e?.message || "Camera failed.");
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(t => t.stop());
+        streamRef.current = null;
+      }
+    } finally {
+      isStartingRef.current = false;
     }
   }
 
   function stopAttendance() {
-    setAttRunning(false);
-    setScanState({ state: "idle", text: "Stopped" });
-    if (timerRef.current) clearInterval(timerRef.current);
-    if (videoRef.current) videoRef.current.pause();
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+    const v = videoRef.current;
+    if (v) {
+      try { v.pause(); } catch {}
+      v.srcObject = null;
+    }
     if (streamRef.current) {
-      streamRef.current.getTracks().forEach((t) => t.stop());
+      streamRef.current.getTracks().forEach(t => t.stop());
       streamRef.current = null;
     }
+    setAttRunning(false);
   }
 
   useEffect(() => {
@@ -94,7 +151,7 @@ export default function Kiosk() {
 
   async function captureAndSend() {
     const video = videoRef.current, canvas = canvasRef.current;
-    if (!video || !canvas) return;
+    if (!video || !canvas || !isActuallyPlaying(video)) return;
 
     const w = video.videoWidth || 640, h = video.videoHeight || 480;
     canvas.width = w; canvas.height = h;
@@ -164,28 +221,17 @@ export default function Kiosk() {
     scanState.state === "disabled" ? "#ef4444" :
     scanState.state === "error" ? "#ef4444" : "#ffffff";
 
-  // sizes
-  const shellStyle = isFs
-    ? { padding: 0, width: "100vw", height: "100vh" }
-    : { padding: 16, minHeight: "100vh" };
-
-  const cardStyle = isFs
-    ? { width: "100%", height: "100%", background: "#051E27", padding: 12 }
-    : { maxWidth: 1400, margin: "0 auto", background: "#051E27", padding: 16 };
-
-  const gridStyle = isFs
-    ? { display: "grid", gridTemplateColumns: "3fr 1fr", gap: 16, height: "calc(100% - 56px)" }
-    : { display: "grid", gridTemplateColumns: "2fr 1fr", gap: 16 };
-
+  const shellStyle = isFs ? { padding: 0, width: "100vw", height: "100vh" } : { padding: 16, minHeight: "100vh" };
+  const cardStyle  = isFs ? { width: "100%", height: "100%", background: "#051E27", padding: 12 }
+                          : { maxWidth: 1400, margin: "0 auto", background: "#051E27", padding: 16 };
+  const gridStyle  = isFs ? { display: "grid", gridTemplateColumns: "3fr 1fr", gap: 16, height: "calc(100% - 56px)" }
+                          : { display: "grid", gridTemplateColumns: "2fr 1fr", gap: 16 };
   const videoWrapStyle = isFs
     ? { border: `4px solid ${borderColor}`, borderRadius: 16, overflow: "hidden", background: "#000",
         position: "relative", width: "100%", height: "100%" }
     : { border: `4px solid ${borderColor}`, borderRadius: 16, overflow: "hidden", background: "#000",
         position: "relative", width: "100%", height: "min(70vh, 720px)", aspectRatio: "16 / 9" };
-
-  const videoStyle = isFs
-    ? { width: "100%", height: "100%", display: "block", objectFit: "cover" }
-    : { width: "100%", height: "100%", display: "block", objectFit: "cover" };
+  const videoStyle = { width: "100%", height: "100%", display: "block", objectFit: "cover" };
 
   return (
     <div ref={pageRef} className="page" style={shellStyle}>
