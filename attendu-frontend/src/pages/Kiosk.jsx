@@ -1,8 +1,8 @@
 // src/pages/kiosk/Kiosk.jsx
 import React, { useEffect, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { useAuth } from "../../AuthContext.jsx";           // <-- path fix
-import { markAttendanceFromFrame } from "../../api.js";    // <-- path fix
+import { useAuth } from "../AuthContext.jsx";
+import { markAttendanceFromFrame } from "../api.js";
 
 export default function Kiosk() {
   const { id } = useParams();
