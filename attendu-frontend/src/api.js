@@ -149,9 +149,9 @@ export const studentSendParentRequest = (email) =>
   postJSON("/api/students/family/requests/", { email });
 
 export async function markAttendanceFromFrame(classId, blob) {
-  const form = new FormData();
+  const form = new FormData();  
   form.append("frame", blob, "frame.jpg");
-  return request(`api/classes/${classId}/attendance/mark`, {
+  return request(`/api/classes/${classId}/attendance/mark/`, {
     method: "POST",
     body: form,
   });
